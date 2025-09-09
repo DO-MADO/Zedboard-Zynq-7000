@@ -1,7 +1,7 @@
-# 📌 Multi-channel ADC Streaming Demo (AD4858/Zynq)
+# 📌 Multi-channel ADC Streaming Demo (AD4858/Zynq-7000)
 
 ## 🚀 프로젝트 개요
-이 프로젝트는 **AD4858/Zynq 기반 다채널 ADC 스트리밍**을 실시간으로 처리하고 시각화하는 데모 코드입니다.  
+이 프로젝트는 **AD4858/Zynq-7000 기반 다채널 ADC 스트리밍**을 실시간으로 처리하고 시각화하는 데모 코드입니다.  
 최대 8채널 입력을 동시에 수집하며, **필터링 · 이동평균 · 타겟 샘플레이트 다운샘플링(Decimation) · 파생 신호 계산** 등을 수행합니다.  
 
 Matplotlib 기반의 **실시간 차트 및 슬라이더 UI**를 제공하며,<br>
