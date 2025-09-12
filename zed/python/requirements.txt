@@ -1,0 +1,9 @@
+numpy
+scipy
+pandas
+matplotlib
+pyadi-iio
+pylibiio
+fastapi
+uvicorn
+plotly

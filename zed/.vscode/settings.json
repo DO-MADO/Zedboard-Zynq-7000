@@ -1,0 +1,8 @@
+{
+    "cmake.sourceDirectory": "C:/Users/Aim/Documents/GitHub/Zedboard-Zynq-7000/zed/c",
+    "files.associations": {
+        "stdlib.h": "c",
+        "fcntl.h": "c",
+        "stdio.h": "c"
+    }
+}

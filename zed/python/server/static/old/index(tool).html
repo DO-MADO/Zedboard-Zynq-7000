@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AD4858 실시간 대시보드</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- Chart.js & Zoom plugin (UMD 전역 로딩: 반드시 app.js보다 먼저) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.umd.min.js"></script>
+
+    <style>
+      :root { --bg:#0b0f16; --panel:#111827; --muted:#6b7280; --text:#e5e7eb; --accent:#10b981; --border:#1f2937; }
+      *{box-sizing:border-box}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,Apple Color Emoji,Segoe UI Emoji}
+      header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(11,15,22,.8);backdrop-filter:blur(6px)}
+      header .brand{font-weight:700;letter-spacing:.5px}
+      .grid{display:grid;grid-template-columns:1fr;gap:12px;padding:12px}
+      @media (min-width:1200px){.grid{grid-template-columns:1.5fr 1fr}}
+      .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:12px;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+      .card h2{margin:0 0 8px 0;font-size:14px;color:#cbd5e1;font-weight:600;letter-spacing:.3px}
+      .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+      .controls label{font-size:12px;color:var(--muted)}
+      .controls input[type="range"]{width:160px}
+      select,input[type="number"],input[type="text"]{background:#0f172a;color:var(--text);border:1px solid var(--border);border-radius:10px;padding:6px 8px}
+      .muted{color:var(--muted);font-size:12px}
+      canvas{width:100% !important;height:360px !important}
+      footer{text-align:center;padding:10px;color:#64748b;font-size:12px}
+      .legend-bar{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 8px}
+      .ch-toggle{display:inline-flex;align-items:center;gap:6px;background:#0f172a;border:1px solid var(--border);border-radius:10px;padding:4px 8px;color:#e5e7eb;font-size:12px;cursor:pointer;user-select:none}
+      .ch-toggle .swatch{width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.4)}
+      .ch-toggle.off{opacity:.55}.ch-toggle.off .swatch{opacity:.4}
+      .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+      .btn{background:#0f172a;color:#e5e7eb;border:1px solid var(--border);border-radius:10px;padding:6px 10px;cursor:pointer;font-size:12px}
+      .coeffs{display:flex;gap:6px;align-items:center}
+      .coeffs input[type="text"]{width:160px}
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <div class="brand">AD4858 Realtime — Local Web</div>
+      <div class="muted">FastAPI + WebSocket + Chart.js</div>
+    </header>
+
+    <main class="grid">
+      <!-- FIGURE 1 -->
+      <section class="card" style="grid-column: 1 / -1;">
+        <h2>FIGURE 1 · 8ch 실시간 차트</h2>
+        <div class="toolbar">
+          <div id="fig1Bar" class="legend-bar"></div>
+          <button id="resetZoom1" class="btn">FIG1 리셋(더블클릭 가능)</button>
+        </div>
+        <canvas id="fig1"></canvas>
+      </section>
+
+      <!-- FIGURE 2 -->
+      <section class="card">
+        <h2>FIGURE 2 · 파생/보정 신호</h2>
+        <div class="controls" style="margin-bottom:6px;">
+          <label>단계</label>
+          <select id="stage">
+            <option value="R">R</option>
+            <option value="Ravg">Ravg</option>
+            <option value="y1">y1</option>
+            <option value="y2">y2</option>
+            <option value="yt" selected>yt</option>
+          </select>
+
+          <label>출력 ch(0~3)</label>
+          <select id="out_ch">
+            <option value="0" selected>0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+
+          <button id="applyStage" class="btn">단계/채널 적용</button>
+        </div>
+
+        <div class="controls" style="margin-bottom:6px;">
+          <label>y1 계수[a2,a1,a0]</label>
+          <div class="coeffs">
+            <input id="y1c" type="text" value="0,1,0" />
+            <button class="btn" id="saveY1">저장</button>
+          </div>
+        </div>
+        <div class="controls" style="margin-bottom:6px;">
+          <label>y2 계수[a2,a1,a0]</label>
+          <div class="coeffs">
+            <input id="y2c" type="text" value="0,1,0" />
+            <button class="btn" id="saveY2">저장</button>
+          </div>
+        </div>
+        <div class="controls" style="margin-bottom:6px;">
+          <label>yt 계수[a2,a1,a0]</label>
+          <div class="coeffs">
+            <input id="ytc" type="text" value="0,1,0" />
+            <button class="btn" id="saveYt">저장</button>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button id="resetZoom2" class="btn">FIG2 리셋(더블클릭 가능)</button>
+        </div>
+        <canvas id="fig2"></canvas>
+      </section>
+
+      <!-- FIGURE 3 -->
+      <section class="card">
+        <h2>FIGURE 3 · 실시간 파라미터</h2>
+        <div class="controls">
+          <label>LPF cutoff (Hz)</label>
+          <input type="range" id="lpf" min="10" max="20000" step="10" />
+          <input type="number" id="lpf_num" min="10" max="20000" step="10" style="width:90px" />
+
+          <label>CH MovingAvg N</label>
+          <input type="range" id="ma_ch" min="1" max="64" step="1" />
+          <input type="number" id="ma_ch_num" min="1" max="64" step="1" style="width:80px" />
+
+          <label>R MovingAvg N</label>
+          <input type="range" id="ma_r" min="1" max="64" step="1" />
+          <input type="number" id="ma_r_num" min="1" max="64" step="1" style="width:80px" />
+
+          <label>Target rate (Hz)</label>
+          <input type="range" id="trate" min="10" max="2000" step="10" />
+          <input type="number" id="trate_num" min="10" max="2000" step="10" style="width:90px" />
+
+          <button id="apply" class="btn">업데이트</button>
+        </div>
+        <div class="muted" id="paramsView" style="margin-top:6px;">—</div>
+      </section>
+    </main>
+
+    <footer>© Realtime demo</footer>
+    <!-- 반드시 마지막에 -->
+    <script src="/static/app.js"></script>
+  </body>
+</html>
