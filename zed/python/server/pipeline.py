@@ -1,4 +1,13 @@
 
+# ============================================================
+# 📂 pipeline.py
+# 목적: 실시간 신호 처리 파이프라인
+# 입력: Synthetic / CProc / IIO 소스
+# 처리: 이동평균 → LPF → 다운샘플링 → 파생 신호 계산
+# 출력: WebSocket JSON payload (실시간 차트/분석용)
+# ============================================================
+
+# ----------------- [1. 라이브러리 임포트] -----------------
 import asyncio
 import json
 import struct
@@ -13,7 +22,11 @@ import numpy as np
 from scipy.signal import butter, sosfilt
 
 # ---------------- Params (10-stage only) -----------------
+
+# ----------------- [2. 파라미터 정의] -----------------
 @dataclass
+
+# ----------------- [5. Pipeline 클래스] -----------------
 class PipelineParams:
     # filtering / averaging / rate
     lpf_cutoff_hz: float = 5_000.0
@@ -35,11 +48,11 @@ class PipelineParams:
     b: float = 0.0
 
     # ⑥ y1 = polyval(y1_num, Ravg) / polyval(y1_den, Ravg)
-    y1_num: List[float] = field(default_factory=lambda: [0.0, 1.0])
+    y1_num: List[float] = field(default_factory=lambda: [1.0, 0.0])
     y1_den: List[float] = field(default_factory=lambda: [1.0])
 
     # ⑦ y2 = polyval(y2_coeffs, y1)
-    y2_coeffs: List[float] = field(default_factory=lambda: [0.0, 1.0])
+    y2_coeffs: List[float] = field(default_factory=lambda: [1.0, 0.0])
 
     # ⑧ yt = E * y2 + F
     E: float = 1.0
@@ -74,6 +87,8 @@ class PipelineParams:
         }
 
 # --------------- Helpers -----------------
+
+# ----------------- [3. 헬퍼 함수] -----------------
 def moving_average(x: np.ndarray, N: int) -> np.ndarray:
     if N is None or N <= 1:
         return x
@@ -114,6 +129,8 @@ def _compute_yt_from_top_bot(params: PipelineParams, top: np.ndarray, bot: np.nd
     return yt.astype(np.float32, copy=False)
 
 # --------------- Data Sources -----------------
+
+# ----------------- [4. Source 클래스 계층] -----------------
 class SourceBase:
     def read_block(self, n_samples: int) -> np.ndarray:
         raise NotImplementedError
@@ -200,6 +217,8 @@ class IIOSource(SourceBase):
         return np.stack(cols, axis=1)
 
 # --------------- Pipeline -----------------
+
+# ----------------- [5. Pipeline 클래스] -----------------
 class Pipeline:
     def __init__(self, mode: str, uri: str, fs_hz: float, block_samples: int, exe_path: str, params: PipelineParams):
         self.params = params
@@ -302,17 +321,7 @@ class Pipeline:
         return changed
 
     def reset_params_to_defaults(self):
-        coeffs = {
-            "alpha": self.params.alpha, "beta": self.params.beta, "gamma": self.params.gamma,
-            "k": self.params.k, "b": self.params.b,
-            "y1_num": self.params.y1_num, "y1_den": self.params.y1_den,
-            "y2_coeffs": self.params.y2_coeffs,
-            "E": self.params.E, "F": self.params.F,
-            "y3_coeffs": self.params.y3_coeffs,
-            "r_abs": self.params.r_abs,
-            "derived_multi": self.params.derived_multi,
-        }
-        self.params = PipelineParams(**coeffs)
+        self.params = PipelineParams()
         self._sos = design_lpf(self.fs, self.params.lpf_cutoff_hz, self.params.lpf_order)
         self._roll_len = int(max(1, self.params.target_rate_hz * self._roll_sec))
         self._roll_x = np.arange(self._roll_len, dtype=np.int32)

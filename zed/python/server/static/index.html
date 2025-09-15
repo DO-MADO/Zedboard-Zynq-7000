@@ -1,333 +1,27 @@
 <!DOCTYPE html>
 <html lang="ko">
   <head>
+    <!-- ===================== [Meta & 기본 설정] ===================== -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>신호처리보드 실시간 대시보드</title>
 
+    <!-- ===================== [폰트 & 스타일] ===================== -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="/static/style.css" />
+
+    <!-- ===================== [차트 라이브러리] ===================== -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-    <style>
-      :root {
-        --bg: #0b1120;
-        --panel: #111827;
-        --muted: #6b7280;
-        --text: #e5e7eb;
-        --accent: #10b981;
-        --border: #1f2937;
-        --label-color: #94a3b8;
-      }
-      body.gray-mode {
-        --bg: #fefce8;
-        --panel: #f1f5f9;
-        --muted: #4b5563;
-        --text: #111827;
-        --border: #d1d5db;
-        --label-color: #4b5563;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--text);
-        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto,
-          Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
-        line-height: 1.5;
-        transition: background-color 0.3s, color 0.3s;
-      }
-      header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--border);
-        position: sticky;
-        top: 0;
-        background: rgba(11, 15, 22, 0.8);
-        backdrop-filter: blur(6px);
-      }
-      body.gray-mode header {
-        background: #fefce8;
-      }
-      .header-controls {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-      }
-      header .brand {
-        font-weight: 700;
-        letter-spacing: 0.5px;
-      }
-      .grid {
-        display: grid;
-        gap: 12px;
-        padding: 12px;
-      }
-      .card {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 16px;
-        padding: 12px;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-        transition: background-color 0.3s, border-color 0.3s;
-      }
-      .card h2 {
-        margin: 2px 0 12px 0;
-        font-size: 18px;
-        padding: 5px;
-        color: #cbd5e1;
-        font-weight: 600;
-        letter-spacing: 0.3px;
-      }
-      body.gray-mode .card h2 {
-        color: #334155;
-      }
-      .controls {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        align-items: center;
-        padding-left: 8px;
-      }
-      .controls label {
-        font-size: 12px;
-        color: var(--label-color);
-      }
-      .controls input[type="range"] {
-        width: 160px;
-      }
-      select,
-      input[type="number"],
-      input[type="text"] {
-        background: #0f172a;
-        color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 6px 8px;
-        transition: background-color 0.3s, color 0.3s, border-color 0.3s;
-      }
-      body.gray-mode select,
-      body.gray-mode input[type="number"],
-      body.gray-mode input[type="text"] {
-        background: #f1f5f9;
-        color: var(--text);
-      }
-      .muted {
-        color: var(--muted);
-        font-size: 12px;
-      }
-      canvas {
-        width: 100% !important;
-        height: 360px !important;
-      }
-      footer {
-        text-align: center;
-        padding: 10px;
-        color: #64748b;
-        font-size: 12px;
-      }
-
-      .legend-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 0;
-      }
-      .ch-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: #0f172a;
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 4px 8px;
-        color: #e5e7eb;
-        font-size: 12px;
-        cursor: pointer;
-        user-select: none;
-      }
-      body.gray-mode .ch-toggle {
-        background: #f1f5f9;
-        color: var(--text);
-      }
-      .ch-toggle .swatch {
-        width: 12px;
-        height: 12px;
-        border-radius: 3px;
-        border: 1px solid rgba(0, 0, 0, 0.4);
-      }
-      .ch-toggle.off {
-        opacity: 0.55;
-      }
-      .ch-toggle.off .swatch {
-        opacity: 0.4;
-      }
-
-      .toolbar {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        margin-bottom: 8px;
-        flex-wrap: wrap;
-      }
-      .btn {
-        background: #0f172a;
-        color: #e5e7eb;
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 6px 10px;
-        cursor: pointer;
-        font-size: 12px;
-        transition: background-color 0.2s, color 0.2s;
-      }
-      body.gray-mode .btn {
-        background: #f1f5f9;
-        color: var(--text);
-      }
-      .btn:hover {
-        background: var(--text);
-        color: var(--panel);
-      }
-      body.gray-mode .btn:hover {
-        background: #cbd5e1;
-        color: var(--text);
-      }
-
-      .switch {
-        position: relative;
-        display: inline-block;
-        width: 50px;
-        height: 28px;
-      }
-      .switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-      }
-      .slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #334155;
-        border-radius: 34px;
-        transition: 0.4s;
-      }
-      .slider:before {
-        position: absolute;
-        content: "🌙";
-        height: 22px;
-        width: 22px;
-        left: 3px;
-        bottom: 3px;
-        background-color: var(--panel);
-        border-radius: 50%;
-        transition: 0.4s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 12px;
-      }
-      input:checked + .slider {
-        background-color: #cbd5e1;
-      }
-      input:checked + .slider:before {
-        transform: translateX(22px);
-        content: "☀️";
-        background-color: white;
-      }
-
-      #apply,
-      #resetParams {
-        margin-top: 14px;
-        font-weight: 600;
-        margin-left: 6px;
-      }
-      .coeffs {
-        display: flex;
-        gap: 6px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      .coeffs input[type="text"] {
-        width: 160px;
-      }
-
-      .horizontal-controls {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: flex-end;
-        gap: 16px;
-        margin-bottom: 12px;
-        padding-left: 6px;
-      }
-      .control-group {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        font-size: 14px;
-      }
-      .graph-legend {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 12px;
-        color: var(--text);
-      }
-      .graph-legend .swatch {
-        width: 12px;
-        height: 12px;
-        border-radius: 3px;
-        background: var(--accent);
-        border: 1px solid rgba(0, 0, 0, 0.4);
-      }
-
-      .parameter-view {
-        margin-top: 22px;
-      }
-      .parameter-view p {
-        margin: 0;
-        padding: 10px;
-        font-size: 14px;
-        line-height: 1.4;
-        margin-left: 3px;
-      }
-      .parameter-view strong {
-        color: #cbd5e1;
-        font-weight: 600;
-        letter-spacing: 0.3px;
-      }
-      body.gray-mode .parameter-view strong {
-        color: #1e293b;
-      }
-      .parameter-view .param-value {
-        color: var(--muted);
-        font-weight: 600;
-      }
-
-      #resetZoom1,
-      #resetZoom2 {
-        font-size: 12px;
-      }
-      #applyStage,
-      #saveY1,
-      #saveY2,
-      #saveYt {
-        font-weight: 600;
-      }
-    </style>
   </head>
+
   <body>
+    <!-- ===================== [헤더 영역] ===================== -->
     <header>
       <div class="brand">신호처리보드 실시간 대시보드 — Local Web</div>
       <div class="header-controls">
@@ -336,10 +30,16 @@
           <input type="checkbox" id="themeToggleInput" />
           <span class="slider"></span>
         </label>
+
+        <!-- README 버튼 -->
+    <button id="readmeBtn" class="readme-btn">README</button>
+ 
       </div>
     </header>
 
+    <!-- ===================== [메인 콘텐츠] ===================== -->
     <main class="grid">
+      <!-- [섹션 1: 8채널 실시간 차트] -->
       <section class="card">
         <h2>8ch 실시간 차트 (줌/드래그 가능)</h2>
         <div class="toolbar">
@@ -349,8 +49,11 @@
         <canvas id="fig1"></canvas>
       </section>
 
+      <!-- [섹션 2: 파생/보정 신호] -->
       <section class="card">
         <h2>파생/보정 신호</h2>
+
+        <!-- 컨트롤 UI -->
         <div class="horizontal-controls">
           <div class="control-group">
             <label>단계</label>
@@ -358,6 +61,7 @@
               <option value="yt" selected>yt</option>
             </select>
           </div>
+
           <div class="control-group">
             <label>표시 모드</label>
             <select id="multiSel">
@@ -366,6 +70,7 @@
           </div>
 
           <div style="width: 16px"></div>
+
           <div class="control-group">
             <label>y1 계수[a2,a1,a0]</label>
             <div class="coeffs">
@@ -373,6 +78,7 @@
               <button class="btn" id="saveY1">적용</button>
             </div>
           </div>
+
           <div class="control-group">
             <label>y2 계수[a2,a1,a0]</label>
             <div class="coeffs">
@@ -380,6 +86,7 @@
               <button class="btn" id="saveY2">적용</button>
             </div>
           </div>
+
           <div class="control-group">
             <label>yt 계수[E,F]</label>
             <div class="coeffs">
@@ -389,6 +96,7 @@
           </div>
         </div>
 
+        <!-- 그래프 -->
         <div class="toolbar">
           <div id="fig2Bar" class="legend-bar"></div>
           <button id="resetZoom2" class="btn">Zoom 리셋 (더블클릭 가능)</button>
@@ -396,67 +104,82 @@
         <canvas id="fig2"></canvas>
       </section>
 
+      <!-- [섹션 3: 실시간 파라미터] -->
       <section class="card">
         <h2>실시간 파라미터</h2>
+
+        <!-- 슬라이더 & 입력 박스 -->
         <div class="controls">
           <label>LPF cutoff (Hz)</label>
           <input type="range" id="lpf" min="10" max="20000" step="10" />
-          <input
-            type="number"
-            id="lpf_num"
-            min="10"
-            max="20000"
-            step="10"
-            style="width: 90px"
-          />
+          <input type="number" id="lpf_num" min="10" max="20000" step="10" style="width: 90px" />
 
           <label>CH Moving Avg (N)</label>
           <input type="range" id="ma_ch" min="1" max="64" step="1" />
-          <input
-            type="number"
-            id="ma_ch_num"
-            min="1"
-            max="64"
-            step="1"
-            style="width: 80px"
-          />
+          <input type="number" id="ma_ch_num" min="1" max="64" step="1" style="width: 80px" />
 
           <label>R Moving Avg (N)</label>
           <input type="range" id="ma_r" min="1" max="64" step="1" />
-          <input
-            type="number"
-            id="ma_r_num"
-            min="1"
-            max="64"
-            step="1"
-            style="width: 80px"
-          />
+          <input type="number" id="ma_r_num" min="1" max="64" step="1" style="width: 80px" />
 
           <label>Target rate (Hz)</label>
           <input type="range" id="trate" min="10" max="2000" step="10" />
-          <input
-            type="number"
-            id="trate_num"
-            min="10"
-            max="2000"
-            step="10"
-            style="width: 90px"
-          />
+          <input type="number" id="trate_num" min="10" max="2000" step="10" style="width: 90px" />
         </div>
 
+        <!-- 버튼 -->
         <div class="toolbar">
           <button id="apply" class="btn">적용</button>
           <button id="resetParams" class="btn">초기화</button>
         </div>
 
+        <!-- 현재 파라미터 뷰 -->
         <div class="muted parameter-view" id="paramsView"></div>
       </section>
     </main>
 
+      <!-- README 모달 -->
+      <div id="readmeModal" class="modal">
+        <div class="modal-content">
+          <span class="close-btn">&times;</span>
+          <h2>📖 사용 안내</h2>
+          <p>
+            이 페이지는 <strong>신호처리보드</strong>를 실시간으로
+            시각화/제어하는 웹 UI입니다.<br>
+            아래 10단계 신호처리 파이프라인을 반영합니다.
+          </p>
+          <ol>
+            <li><b>Raw Data Acquisition</b>: 8ch PD 신호, 100 kS/s</li>
+            <li><b>Noise Filtering</b>: LPF / Smoothing (Cutoff 조정 가능)</li>
+            <li><b>시간평균(Time Avg.)</b>: 100 kS/s → Target rate (예: 10 S/s)</li>
+            <li><b>비율계산(R)</b>: αβγk × (I1+I2)/(I3+I4) + b</li>
+            <li><b>이동평균(Ravg)</b>: 윈도우 크기 N 조정 가능</li>
+            <li><b>보정 함수(y1)</b>: 다항식 분수 형태 (coeffs_y1 / y1_den)</li>
+            <li><b>2차 보정(y2)</b>: 다항식 계수 기반 (coeffs_y2)</li>
+            <li><b>Scaling (yt)</b>: yt = E × y2 + F</li>
+            <li><b>추가 보정(y3)</b>: 선택적 다항식 계수 적용</li>
+            <li><b>출력</b>: 4ch 신호 (yt_4) 실시간 Plot + WebSocket 송출</li>
+          </ol>
+          <h2>📊 화면 구성</h2>
+          <ul>
+            <li><b>Figure 1</b>: 8채널 원시/필터링 신호 (줌·드래그 지원)</li>
+            <li><b>Figure 2</b>: 파생 신호 (y1, y2, yt 등, 계수 변경 가능)</li>
+            <li><b>Figure 3</b>: 파라미터 제어 (LPF, Moving Avg, Target rate 등)</li>
+          </ul>
+          <p>
+            모든 설정은 <b>즉시 반영</b>되며, <b>초기화 버튼</b>으로 기본값으로 복원할 수 있습니다.
+          </p>
+        </div>
+      </div>
+
+
+    <!-- ===================== [푸터 영역] ===================== -->
     <footer>© (주)AIM</footer>
 
+    <!-- ===================== [스크립트] ===================== -->
     <script type="module" src="/static/app.js"></script>
 
+    <!-- 테마 토글 스크립트 -->
     <script>
       const themeToggle = document.getElementById("themeToggleInput");
       const body = document.body;
