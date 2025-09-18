@@ -111,6 +111,15 @@ async def index():
     return {"ok": True, "message": "AD4858 Web UI running (10-stage). Connect to /ws for frames."}
 
 
+@app.get("/test")
+async def test_page():
+    """누적 차트 페이지(test.html) 반환"""
+    test_html_path = STATIC / "test.html"
+    if test_html_path.exists():
+        return FileResponse(test_html_path)
+    return {"ok": False, "message": "test.html not found."}
+
+
 @app.get("/api/params")
 async def get_params():
     """현재 파라미터 조회"""

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>누적 데이터 차트 (ch0, ch1)</title>
+    <style>
+        /* 기본 여백 제거 및 다크 모드 배경 고정 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0f172a; /* 어두운 배경색 고정 */
+        }
+        #chart-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div id="chart-container">
+        <canvas id="accumulatingChart"></canvas>
+    </div>
+    <script type="module" src="/static/test.js"></script>
+</body>
+</html>
