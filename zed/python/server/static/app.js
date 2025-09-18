@@ -40,9 +40,11 @@ const resetBtn2 = document.getElementById('resetZoom2');
 const fig2Bar   = document.getElementById('fig2Bar');
 const y1c       = document.getElementById('y1c');
 const y2c       = document.getElementById('y2c');
+const y3c = document.getElementById('y3c');
 const ytc       = document.getElementById('ytc');
 const saveY1    = document.getElementById('saveY1');
 const saveY2    = document.getElementById('saveY2');
+const saveY3 = document.getElementById('saveY3');
 const saveYt    = document.getElementById('saveYt');
 
 // --- 색상 팔레트 (채널별 라인 색) ---
@@ -158,7 +160,7 @@ function makeChart(ctx, { legend = false, xTitle = '', yTitle = '' } = {}) {
 
 // --- 실제 차트 인스턴스 ---
 const fig1 = makeChart(fig1Ctx, { xTitle: 'Sample Index', yTitle: 'Signal Value (V)' });
-const fig2 = makeChart(fig2Ctx, { xTitle: 'Sample Index', yTitle: 'yt' });
+const fig2 = makeChart(fig2Ctx, { xTitle: 'Sample Index', yTitle: 'yt (unit)' });
 
 // --- 줌 리셋 이벤트 ---
 fig1Ctx.addEventListener('dblclick', () => fig1.resetZoom());
@@ -312,7 +314,7 @@ async function fetchParams() {
 }
 
 function applyParamsToUI(p) {
-  // UI 값 동기화
+  // ----- 공통 슬라이더/숫자 입력 동기화 -----
   if (lpf)      lpf.value      = p.lpf_cutoff_hz;
   if (lpfNum)   lpfNum.value   = p.lpf_cutoff_hz;
   if (maCh)     maCh.value     = p.movavg_ch;
@@ -322,23 +324,60 @@ function applyParamsToUI(p) {
   if (tRate)    tRate.value    = p.target_rate_hz;
   if (tRateNum) tRateNum.value = p.target_rate_hz;
 
-  if (y1c) y1c.value = Array.isArray(p.coeffs_y1) ? p.coeffs_y1.join(',') : '1,0';
-  if (y2c) y2c.value = Array.isArray(p.coeffs_y2) ? p.coeffs_y2.join(',') : '1,0';
-  if (ytc) ytc.value = Array.isArray(p.coeffs_yt) ? p.coeffs_yt.join(',') : '10,0';
+  // ----- 계수계 입력창 값 설정 -----
 
+  // y1: UI에서는 분모(y1_den)를 편집. 백엔드에서 y1_den 값을 읽어옴.
+  const y1_den_val = Array.isArray(p.y1_den) ? p.y1_den
+                   : [0.0, 0.0, 0.0, 0.01, 0.05, 1.0]; // 폴백 기본값
+  if (y1c) y1c.value = y1_den_val.join(' , ');
+
+  // y2: 5차 다항식 계수 (6개). 백엔드에서 y2_coeffs 값을 읽어옴.
+  const y2_coeffs_val = Array.isArray(p.y2_coeffs) ? p.y2_coeffs
+                      : [0.0, 0.0, 0.0, -0.01, 0.90, 0.0]; // 폴백 기본값
+  if (y2c) y2c.value = y2_coeffs_val.join(' , ');
+
+  // y3: 5차 다항식 계수 (6개). 백엔드에서 y3_coeffs 값을 읽어옴.
+  const y3_coeffs_val = Array.isArray(p.y3_coeffs) ? p.y3_coeffs
+                      : [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]; // 폴백 기본값
+  if (y3c) y3c.value = y3_coeffs_val.join(' , ');
+
+  // yt: [E, F] 계수 (2개). 백엔드에서 E, F 값을 읽어옴.
+  const yt_coeffs_val = (typeof p.E === 'number' && typeof p.F === 'number') ? [p.E, p.F]
+                      : [1.0, 0.0]; // 폴백 기본값
+  if (ytc) ytc.value = yt_coeffs_val.join(' , ');
+
+  // ----- 파라미터 뷰(피규어3) 텍스트 동기화 -----
   if (paramsView) {
+    // 위쪽 입력창 값들과 동일한 변수를 사용하여 텍스트를 생성
     paramsView.innerHTML = `
-      <p><strong>LPF Cutoff</strong> : <span class="param-value">${p.lpf_cutoff_hz} Hz</span></p>
-      <p><strong>CH Moving Avg</strong> : <span class="param-value">${p.movavg_ch}</span></p>
-      <p><strong>R Moving Avg</strong> : <span class="param-value">${p.movavg_r}</span></p>
-      <p><strong>Target Rate</strong> : <span class="param-value">${p.target_rate_hz} Hz</span></p>
-      <p><strong>Output Channel</strong> : <span class="param-value">yt_4</span></p>
-      <p><strong>y1 Coefficients</strong> : <span class="param-value">[${Array.isArray(p.coeffs_y1) ? p.coeffs_y1.join(',') : p.coeffs_y1}]</span></p>
-      <p><strong>y2 Coefficients</strong> : <span class="param-value">[${Array.isArray(p.coeffs_y2) ? p.coeffs_y2.join(',') : p.coeffs_y2}]</span></p>
-      <p><strong>yt Coefficients</strong> : <span class="param-value">[${Array.isArray(p.coeffs_yt) ? p.coeffs_yt.join(',') : p.coeffs_yt}]</span></p>
+      <p><strong>LPF Cutoff(저역통과 필터 설정값)</strong> :
+         <span class="param-value">${p.lpf_cutoff_hz} Hz</span></p>
+      <p><strong>CH Moving Avg(채널 이동 평균 윈도우 크기)</strong> :
+         <span class="param-value">${p.movavg_ch}</span></p>
+      <p><strong>R Moving Avg(R 이동 평균 윈도우 크기)</strong> :
+         <span class="param-value">${p.movavg_r}</span></p>
+      <p><strong>Target Rate(출력 샘플 속도, 설정값)</strong> :
+         <span class="param-value">${p.target_rate_hz} S/s</span></p>
+      <p><strong>Output Channel(출력 채널)</strong> :
+         <span class="param-value">${p.derived_multi ?? 'yt_4'}</span></p>
+      <p><strong>y1 Denominator Coeffs(y1 분모 계수)</strong> :
+         <span class="param-value">[${y1_den_val.join(' , ')}]</span></p>
+      <p><strong>y2 Coefficients(y2 보정 계수)</strong> :
+         <span class="param-value">[${y2_coeffs_val.join(' , ')}]</span></p>
+      <p><strong>y3 Coefficients(y3 보정 계수)</strong> :
+         <span class="param-value">[${y3_coeffs_val.join(' , ')}]</span></p>
+      <p><strong>yt Coefficients(yt 스케일 계수)</strong> :
+         <span class="param-value">[${yt_coeffs_val.join(' , ')}]</span></p>
+       
+      <medium style="color: #347dd6ff; display: block; margin-top: 14px; margin-left: 10px; line-height: 2.2; font-style: italic;">
+        ※ <b>Target Rate</b>는 시간평균 후의 출력 샘플링 속도입니다.<br>
+        ※ 대시보드 상단의 <b>루프 처리량</b>은 처리 루프의 실행 빈도이며 서로 다릅니다.<br>
+        ※ y1 계산 시 분자는 <b>Ravg</b> 값으로 고정되며, <b>분모 계수만</b> 수정됩니다.
+      </medium>
     `;
   }
 }
+
 
 async function postParams(diff) {
   const r = await fetch('/api/params', {
@@ -363,11 +402,22 @@ document.getElementById('apply')?.addEventListener('click', ()=>{
 // --- 계수 저장 버튼 ---
 function parseCoeffs(txt) {
   return txt.split(',').map(s=>parseFloat(s.trim())).filter(v=>!Number.isNaN(v));
-}
-saveY1?.addEventListener('click', ()=> postParams({ coeffs_y1: parseCoeffs(y1c.value) }));
-saveY2?.addEventListener('click', ()=> postParams({ coeffs_y2: parseCoeffs(y2c.value) }));
-saveYt?.addEventListener('click', ()=> postParams({ coeffs_yt: parseCoeffs(ytc.value) }));
+ }
 
+function parseCoeffsN(txt, n=6, fill=0) {
+  const v = parseCoeffs(txt);
+  if (v.length < n) v.push(...Array(n - v.length).fill(fill));
+  else if (v.length > n) v.length = n;
+  return v;
+ }
+
+saveY1?.addEventListener('click', ()=> postParams({ y1_den: parseCoeffs(y1c.value) }));
+saveY2?.addEventListener('click', ()=> postParams({ y2_coeffs: parseCoeffs(y2c.value) }));
+saveY3?.addEventListener('click', ()=> postParams({ y3_coeffs: parseCoeffs(y3c.value) }));
+saveYt?.addEventListener('click', ()=>{
+const [E, F] = parseCoeffs(ytc.value);
+postParams({ E, F });
+});
 
 // ============================================================
 //  [WebSocket 연결 & 데이터 핸들링]
@@ -387,20 +437,23 @@ function connectWS() {
         const y2d = m.window.y;
         setFig1Data(x, y2d);
 
-        if (m.multi) setFig2Multi(m.multi);
-        else if (m.derived) setFig2Single(m.derived.name, m.derived.series);
+        // 백엔드에서 보낸 m.derived 객체에 여러 신호가 담겨 있으므로,
+        // 이를 다중 신호 처리 함수인 setFig2Multi로 전달합니다.
+        if (m.derived) {
+          setFig2Multi(m.derived);
+        }
+        // =================================================
 
         if (m.stats && clockEl) {
           const s = m.stats;
           clockEl.textContent =
-            `Read: ${s.read_ms.toFixed(1)}ms | Process: ${s.proc_ms.toFixed(1)}ms | Rate: ${s.update_hz.toFixed(1)}Hz | Throughput: ${s.proc_kSps.toFixed(1)}kS/s`;
+          `데이터 수집: ${s.read_ms.toFixed(1)}ms | 신호 처리: ${s.proc_ms.toFixed(1)}ms | 화면 갱신: ${s.update_hz.toFixed(1)}Hz | 루프 처리량: ${s.proc_kSps.toFixed(1)}kS/s`
         }
       }
     } catch(e) { console.error(e); }
   };
   ws.onclose = ()=>{ setTimeout(connectWS, 1000); };
 }
-
 
 // ============================================================
 //  [파라미터 초기화 버튼]

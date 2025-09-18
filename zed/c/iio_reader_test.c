@@ -1,5 +1,5 @@
-// iio_reader_test.c : AD4858 첫 블록의 각 채널 10개 샘플 텍스트 출력
-// 목적: 채널 분리 확인 (timestamp scan element 자동 무시 포함)
+// iio_reader_monitor_aligned.c : AD4858 실험 모니터링용 (샘플 기준 정렬 출력)
+// 각 샘플마다 모든 채널 값을 묶어서, 1초(100000 샘플)마다 한 줄 출력한다.
 
 #include <iio.h>
 #include <stdio.h>
@@ -27,15 +27,17 @@ typedef struct {
     double scale;
     long offset;
     const char *id;
+    const uint8_t *p;   // pointer into buffer
 } ch_info_t;
 
 int main(int argc, char **argv) {
-    const char *ip = "192.168.1.133";
-    int block_samples = 1024; // 작은 블록만 가져옴
+    const char *ip = "192.168.1.133";    // 장치 IP
+    int block_samples = 1024;            // 블록 크기 (1024 샘플씩 읽음)
     const char *dev_name = "ad4858";
 
     if (argc > 1 && argv[1] && argv[1][0]) ip = argv[1];
 
+    // Context 생성
     struct iio_context *ctx = iio_create_network_context(ip);
     if (!ctx) {
         fprintf(stderr, "ERR: failed to connect to %s\n", ip);
@@ -53,6 +55,7 @@ int main(int argc, char **argv) {
     ch_info_t *chs = (ch_info_t*)calloc((size_t)total_ch, sizeof(*chs));
     int n_in = 0;
 
+    // 채널 스캔
     for (int i = 0; i < total_ch; i++) {
         struct iio_channel *ch = iio_device_get_channel(dev, i);
         if (!ch) continue;
@@ -61,11 +64,7 @@ int main(int argc, char **argv) {
 
         const char *id = iio_channel_get_id(ch);
         if (!id) continue;
-        // timestamp 자동 무시
-        if (strncmp(id, "timestamp", 9) == 0) {
-            fprintf(stderr, "[skip] %s (timestamp)\n", id);
-            continue;
-        }
+        if (strncmp(id, "timestamp", 9) == 0) continue;
         if (strncmp(id, "voltage", 7) != 0) continue;
 
         chs[n_in].ch = ch;
@@ -88,6 +87,9 @@ int main(int argc, char **argv) {
         }
         chs[n_in].offset = off;
 
+        fprintf(stderr, "[init] %s idx=%d scale=%g V/LSB, offset=%ld\n",
+                id, chs[n_in].index, s, off);
+
         n_in++;
     }
 
@@ -98,22 +100,7 @@ int main(int argc, char **argv) {
         return 3;
     }
 
-    // scan index 기준 정렬
-    for (int a = 0; a < n_in - 1; a++) {
-        for (int b = a + 1; b < n_in; b++) {
-            if (chs[a].index > chs[b].index) {
-                ch_info_t tmp = chs[a];
-                chs[a] = chs[b];
-                chs[b] = tmp;
-            }
-        }
-    }
-
-    for (int ci = 0; ci < n_in; ci++) {
-        fprintf(stderr, "[test] %s idx=%d scale=%g V/LSB (%.3f µV/LSB), offset=%ld\n",
-            chs[ci].id, chs[ci].index, chs[ci].scale, chs[ci].scale * 1e6, chs[ci].offset);
-    }
-
+    // 버퍼 생성
     struct iio_buffer *buf = iio_device_create_buffer(dev, (size_t)block_samples, false);
     if (!buf) {
         fprintf(stderr, "ERR: buffer create failed\n");
@@ -122,28 +109,44 @@ int main(int argc, char **argv) {
         return 4;
     }
 
-    if (iio_buffer_refill(buf) < 0) {
-        fprintf(stderr, "ERR: buffer refill failed\n");
-        iio_buffer_destroy(buf);
-        free(chs);
-        iio_context_destroy(ctx);
-        return 5;
-    }
+    printf("=== Realtime monitoring start (every 100000th sample) ===\n");
 
-    printf("=== First 10 samples per channel (µV) ===\n");
-    for (int ci = 0; ci < n_in; ci++) {
-        struct iio_channel *ch = chs[ci].ch;
-        const uint8_t *p = (const uint8_t *)iio_buffer_first(buf, ch);
+    long sample_count = 0;
+    for (;;) {
+        if (iio_buffer_refill(buf) < 0) {
+            fprintf(stderr, "ERR: buffer refill failed\n");
+            break;
+        }
+
+        // 채널별 버퍼 포인터 초기화
+        for (int ci = 0; ci < n_in; ci++) {
+            chs[ci].p = (const uint8_t *)iio_buffer_first(buf, chs[ci].ch);
+        }
         ptrdiff_t step = iio_buffer_step(buf);
 
-        printf("Channel %s (idx=%d):\n", chs[ci].id, chs[ci].index);
-        for (int s = 0; s < 10; s++) {
-            int64_t raw = 0;
-            iio_channel_convert(ch, &raw, p);
-            double v = ((double)raw + (double)chs[ci].offset) * chs[ci].scale;
-            printf("  sample[%d] = %.3f µV\n", s, v * 1e6);
-            p += step;
+        // 샘플 기준으로 순서대로 출력
+        for (int s = 0; s < block_samples; s++) {
+            if (sample_count % 100000 == 0) {  // 1초마다 출력 (100kS/s 기준)
+                printf("[%ld] ", sample_count);
+                for (int ci = 0; ci < n_in; ci++) {
+                    int64_t raw = 0;
+                    iio_channel_convert(chs[ci].ch, &raw, chs[ci].p);
+                    double v = ((double)raw + (double)chs[ci].offset) * chs[ci].scale;
+                    printf("%s=%.6f V%s",
+                           chs[ci].id,
+                           v,
+                           (ci == n_in - 1 ? "\n" : " , "));
+                }
+            }
+
+            // 포인터 전진
+            for (int ci = 0; ci < n_in; ci++) {
+                chs[ci].p += step;
+            }
+
+            sample_count++;
         }
+        fflush(stdout);
     }
 
     iio_buffer_destroy(buf);

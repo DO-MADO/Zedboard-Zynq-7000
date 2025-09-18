@@ -398,7 +398,7 @@ body.gray-mode .readme-btn:hover {
   margin: 10% auto;
   padding: 20px;
   border: 1px solid var(--border);
-  max-width: 70vh;
+  max-width: 82vh;
   max-height: 70vh;   /* 화면 높이의 80%까지만 */
   overflow-y: auto;   /* 내용이 넘치면 내부 스크롤 */
   border-radius: 12px;

@@ -72,7 +72,7 @@
           <div style="width: 16px"></div>
 
           <div class="control-group">
-            <label>y1 계수[a2,a1,a0]</label>
+            <label>y1 분모 계수 [a5,a4,a3,a2,a1,a0]</label>
             <div class="coeffs">
               <input id="y1c" type="text" value="0,1,0" />
               <button class="btn" id="saveY1">적용</button>
@@ -80,13 +80,19 @@
           </div>
 
           <div class="control-group">
-            <label>y2 계수[a2,a1,a0]</label>
+          <label>y2 계수 [b5,b4,b3,b2,b1,b0]</label>
+          <div class="coeffs">
+            <input id="y2c" type="text" value="0,0,0,-0.01,0.9,0" />
+            <button class="btn" id="saveY2">적용</button>
+          </div>
+        </div>
+          <div class="control-group">
+            <label>y3 계수 [c5,c4,c3,c2,c1,c0]</label>
             <div class="coeffs">
-              <input id="y2c" type="text" value="0,1,0" />
-              <button class="btn" id="saveY2">적용</button>
+              <input id="y3c" type="text" value="0,1,0,0,0,0" />
+              <button class="btn" id="saveY3">적용</button>
             </div>
           </div>
-
           <div class="control-group">
             <label>yt 계수[E,F]</label>
             <div class="coeffs">
@@ -122,7 +128,7 @@
           <input type="range" id="ma_r" min="1" max="64" step="1" />
           <input type="number" id="ma_r_num" min="1" max="64" step="1" style="width: 80px" />
 
-          <label>Target rate (Hz)</label>
+          <label>Target rate (S/s)</label>
           <input type="range" id="trate" min="10" max="2000" step="10" />
           <input type="number" id="trate_num" min="10" max="2000" step="10" style="width: 90px" />
         </div>
@@ -138,39 +144,50 @@
       </section>
     </main>
 
-      <!-- README 모달 -->
-      <div id="readmeModal" class="modal">
-        <div class="modal-content">
-          <span class="close-btn">&times;</span>
-          <h2>📖 사용 안내</h2>
-          <p>
-            이 페이지는 <strong>신호처리보드</strong>를 실시간으로
-            시각화/제어하는 웹 UI입니다.<br>
-            아래 10단계 신호처리 파이프라인을 반영합니다.
-          </p>
-          <ol>
-            <li><b>Raw Data Acquisition</b>: 8ch PD 신호, 100 kS/s</li>
-            <li><b>Noise Filtering</b>: LPF / Smoothing (Cutoff 조정 가능)</li>
-            <li><b>시간평균(Time Avg.)</b>: 100 kS/s → Target rate (예: 10 S/s)</li>
-            <li><b>비율계산(R)</b>: αβγk × (I1+I2)/(I3+I4) + b</li>
-            <li><b>이동평균(Ravg)</b>: 윈도우 크기 N 조정 가능</li>
-            <li><b>보정 함수(y1)</b>: 다항식 분수 형태 (coeffs_y1 / y1_den)</li>
-            <li><b>2차 보정(y2)</b>: 다항식 계수 기반 (coeffs_y2)</li>
-            <li><b>Scaling (yt)</b>: yt = E × y2 + F</li>
-            <li><b>추가 보정(y3)</b>: 선택적 다항식 계수 적용</li>
-            <li><b>출력</b>: 4ch 신호 (yt_4) 실시간 Plot + WebSocket 송출</li>
-          </ol>
-          <h2>📊 화면 구성</h2>
-          <ul>
-            <li><b>Figure 1</b>: 8채널 원시/필터링 신호 (줌·드래그 지원)</li>
-            <li><b>Figure 2</b>: 파생 신호 (y1, y2, yt 등, 계수 변경 가능)</li>
-            <li><b>Figure 3</b>: 파라미터 제어 (LPF, Moving Avg, Target rate 등)</li>
-          </ul>
-          <p>
-            모든 설정은 <b>즉시 반영</b>되며, <b>초기화 버튼</b>으로 기본값으로 복원할 수 있습니다.
-          </p>
-        </div>
-      </div>
+    <!-- README 모달 -->
+<div id="readmeModal" class="modal">
+  <div class="modal-content">
+    <span class="close-btn">&times;</span>
+    <h2>📖 사용 안내</h2>
+    <p>
+      이 페이지는 <strong>신호처리보드</strong>를 실시간으로
+      시각화/제어하는 웹 UI입니다.<br>
+      아래 10단계 신호처리 파이프라인을 반영합니다.
+    </p>
+    <ol>
+      <li><b style="font-size: 1.1em;">Raw Data Acquisition</b> : 8ch PD 신호, 100 kS/s</li>
+      <li><b style="font-size: 1.1em;">Noise Filtering</b> : LPF / Smoothing (Cutoff 조정 가능)</li>
+      <li><b style="font-size: 1.1em;">시간평균(Time Avg)</b> : 100 kS/s → Target rate (예: 10 S/s)</li>
+      <li><b style="font-size: 1.1em;">비율계산(R)</b> : 
+          R = αβγk × logₖ(<i>I_sensor</i> / <i>I_std</i>) + b<br>
+          (센서값 ÷ 기준(스탠다드) 값)</li>
+      <li><b style="font-size: 1.1em;">이동평균(Ravg)</b> : 윈도우 크기 N 조정 가능</li>
+      <li><b style="font-size: 1.1em;">보정 함수(y1)</b> : 분자는 Ravg, 분모는 다항식 계수(y1_den)</li>
+      <li><b style="font-size: 1.1em;">2차 보정(y2)</b> : 다항식 계수 기반 (y2_coeffs)</li>
+      <li><b style="font-size: 1.1em;">추가 보정(y3)</b> : 선택적 다항식 계수 적용 (y3_coeffs)</li>
+      <li><b style="font-size: 1.1em;">Scaling (yt)</b> : yt = E × y3 + F</li>
+      <li><b style="font-size: 1.1em;">출력</b> : 4쌍 신호 (yt0~yt3), 실시간 Plot + WebSocket 송출</li>
+    </ol>
+
+    <h2>📊 화면 구성</h2>
+    <ul>
+      <li><b>Figure 1</b>: 8채널 원시/필터링 신호 (줌·드래그 지원)</li>
+      <li><b>Figure 2</b>: 파생 신호 (y1, y2, y3, yt 등, 계수 변경 가능)</li>
+      <li><b>Figure 3</b>: 파라미터 및 계수 제어
+          (LPF, Moving Avg, Target rate, y1/y2/y3/yt 계수 등)</li>
+    </ul>
+
+    <p>
+      모든 설정은 <b>즉시 반영</b>되며, <b>초기화 버튼</b>으로 기본값으로 복원할 수 있습니다.
+    </p>
+
+    <small style="color: gray; display: block; margin-top: 14px; line-height: 2.2; font-style: italic;">
+      ※ Target Rate(샘플링 속도)는 루프 처리량 속도와 다릅니다.<br>
+      ※ y1 계산에서 분자는 항상 Ravg, 분모는 Denominator Coeffs(y1_den)입니다.
+    </small>
+  </div>
+</div>
+
 
 
     <!-- ===================== [푸터 영역] ===================== -->

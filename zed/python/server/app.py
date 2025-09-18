@@ -64,6 +64,7 @@ class ParamsIn(BaseModel):
     # 구 UI에서 쓰던 계수 (레거시 지원)
     coeffs_y1: Optional[List[float]] = None
     coeffs_y2: Optional[List[float]] = None
+    coeffs_y3: Optional[List[float]] = None
     coeffs_yt: Optional[List[float]] = None
 
     # 파이프라인 내부에서 쓰는 네이티브 파라미터
@@ -92,6 +93,7 @@ def _with_legacy_keys(data: dict) -> dict:
     out = dict(data)
     out["coeffs_y1"] = out.get("y1_num", [])
     out["coeffs_y2"] = out.get("y2_coeffs", [])
+    out["coeffs_y3"] = out.get("y3_coeffs", [])
     out["coeffs_yt"] = [out.get("E", 1.0), out.get("F", 0.0)]
     return out
 
@@ -131,6 +133,8 @@ async def set_params(p: ParamsIn):
         body["y1_num"] = body.pop("coeffs_y1")
     if "coeffs_y2" in body:
         body["y2_coeffs"] = body.pop("coeffs_y2")
+    if "coeffs_y3" in body:
+        body["y3_coeffs"] = body.pop("coeffs_y3")        
     if "coeffs_yt" in body:
         coeffs = body.pop("coeffs_yt")
         if isinstance(coeffs, list) and len(coeffs) >= 2:
@@ -220,14 +224,14 @@ if __name__ == "__main__":
         alpha=coeffs.get("alpha", 1.0),
         beta=coeffs.get("beta", 1.0),
         gamma=coeffs.get("gamma", 1.0),
-        k=coeffs.get("k", 1.0),
+        k=coeffs.get("k", 10.0),
         b=coeffs.get("b", 0.0),
         y1_num=coeffs.get("y1_num", [1.0, 0.0]),
-        y1_den=coeffs.get("y1_den", [1.0]),
-        y2_coeffs=coeffs.get("y2_coeffs", [1.0, 0.0]),
-        E=coeffs.get("E", 10.0),
+        y1_den=coeffs.get("y1_den", [0.0, 0.0, 0.0, 0.01, 0.05, 1.0]),
+        y2_coeffs=coeffs.get("y2_coeffs", [0.0, 0.0, 0.0, -0.01, 0.90, 0.0]),
+        E=coeffs.get("E", 1.0),
         F=coeffs.get("F", 0.0),
-        y3_coeffs=coeffs.get("y3_coeffs", [0.0, 1.0, 0.0]),
+        y3_coeffs=coeffs.get("y3_coeffs", [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]),
         r_abs=coeffs.get("r_abs", True),
     )
 
