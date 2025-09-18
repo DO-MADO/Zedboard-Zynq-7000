@@ -13,12 +13,15 @@ import struct
 import subprocess
 import threading
 import time
+import csv
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 import numpy as np
 from scipy.signal import butter, sosfilt, sosfilt_zi
+
 
 # ----------------- [2. 파라미터 정의] -----------------
 @dataclass
@@ -83,6 +86,24 @@ class PipelineParams:
         }
 
 # ----------------- [3. 헬퍼 함수] -----------------
+
+# ##### [추가] 고유한 로그 파일 경로를 생성하는 함수 #####
+def get_unique_log_path(directory: Path, base_name: str, extension: str) -> Path:
+    """
+    지정된 디렉토리 내에서 겹치지 않는 파일 경로를 생성합니다.
+    (예: stream_log.csv, stream_log_1.csv, stream_log_2.csv ...)
+    """
+    counter = 1
+    file_path = directory / f"{base_name}{extension}"
+    
+    # 파일이 이미 존재하면, 이름 뒤에 숫자를 붙여 새 경로를 탐색
+    while file_path.exists():
+        file_path = directory / f"{base_name}_{counter}{extension}"
+        counter += 1
+    
+    return file_path
+# ##### [추가 끝] #####
+
 def moving_average(x: np.ndarray, N: int) -> np.ndarray:
     if N is None or N <= 1:
         return x
@@ -261,14 +282,37 @@ class Pipeline:
         self._consumers: List[asyncio.Queue[str]] = []
         self._consumers_lock = threading.Lock()
 
-        # ===== optional logs (paths prepared) =====
+        # ##### [수정] 고유한 로그 파일 경로 생성 및 헤더(Header) 기록 #####
         log_dir = Path(__file__).parent / "logs"
         today_dir = log_dir / time.strftime('%Y-%m-%d')
         today_dir.mkdir(parents=True, exist_ok=True)
-        self._stream_log_path = today_dir / "stream_log.csv"
-        self._perf_log_path = today_dir / "perf_log.csv"
-        self._log_counter = 0
 
+        # 고유한 파일 경로를 받아옴
+        self._stream_log_path = get_unique_log_path(today_dir, "stream_log", ".csv")
+        self._perf_log_path = get_unique_log_path(today_dir, "perf_log", ".csv")
+        self._last_perf_log_time = time.time() 
+        self._last_stream_log_time = time.time()
+
+        # --- stream_log.csv 헤더 ---
+        # (새 파일이므로 항상 헤더를 새로 씁니다)
+        stream_headers = [
+            "시간", "ch0", "ch1", "ch2", "ch3", "ch4", "ch5", "ch6", "ch7",
+            "yt0", "yt1", "yt2", "yt3",
+            "LRF설정", "R평균", "출력샘플속도"
+        ]
+        with open(self._stream_log_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(stream_headers)
+
+        # --- perf_log.csv 헤더 ---
+        # (새 파일이므로 항상 헤더를 새로 씁니다)
+        perf_headers = ["시간", "데이터수집(ms)", "신호처리(ms)", "화면갱신(Hz)", "루프처리량(kS/s)"]
+        with open(self._perf_log_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(perf_headers)
+        # ##### [수정 끝] #####
+        
+        
     # ---------- coeffs I/O ----------
     @staticmethod
     def load_coeffs(path: Path):
@@ -368,10 +412,11 @@ class Pipeline:
             "series": output_series
         }
 
-    # ---------- main loop ----------
+        # ---------- main loop ----------
     def _run(self):
         last_loop_end_time = time.time()
         # loop_count = 0  # 로그 출력을 제어하기 위한 카운터
+
         while not self._stop.is_set():
             t_start = time.time()
             try:
@@ -380,7 +425,7 @@ class Pipeline:
             except EOFError:
                 print("[INFO] CProc source has ended. Shutting down pipeline thread.")
                 break
-            
+
             # ##### DEBUG LOGGING START #####
             # C 프로그램에서 받은 데이터가 0을 포함하는지 여기서 바로 확인합니다.
             # 너무 자주 출력되면 터미널이 멈출 수 있으므로 10번에 한 번만 출력합니다.
@@ -402,34 +447,30 @@ class Pipeline:
                 mat = mat[:, None]
             if not mat.flags.writeable:
                 mat = np.array(mat, dtype=np.float32, copy=True)
-                
+
             # ##### [코드 추가/수정] 채널 수가 변경되면 필터 상태를 리셋 #####
             n_ch = mat.shape[1]
             if n_ch != self._n_ch_last:
-                self._lpf_state = sosfilt_zi(self._sos)
+                # 채널 수가 변경되면 LPF 상태를 올바른 shape으로 다시 생성
+                zi_one_ch = sosfilt_zi(self._sos)
+                self._lpf_state = np.stack([zi_one_ch] * n_ch, axis=-1)
                 self._n_ch_last = n_ch
-            # ##### [코드 추가/수정 끝] #####    
 
             # Per-channel moving average (optional)
             if self.params.movavg_ch and self.params.movavg_ch > 1:
                 for c in range(mat.shape[1]):
                     mat[:, c] = moving_average(mat[:, c], self.params.movavg_ch)
 
-
-            # ##### [코드 수정] LPF 적용 부분을 상태를 사용하도록 변경 #####
             # LPF
             zf_list = []
             for c in range(n_ch):
-                # 3차원 상태 배열에서 현재 채널(c)에 해당하는 2차원 상태를 추출합니다. (Shape: [2, 2])
                 zi_c = self._lpf_state[:, :, c]
-                
                 mat[:, c], zf_c = apply_lpf(mat[:, c], self._sos, zi=zi_c)
                 zf_list.append(zf_c)
-
             if zf_list:
-                # 각 채널에서 나온 최종 상태(zf)들을 다시 3차원 배열로 합쳐서 다음 루프를 위해 저장합니다.
                 self._lpf_state = np.stack(zf_list, axis=-1)
-            # ##### [코드 수정 끝] #####
+                
+            ####### [수정된 부분 END] #####    
 
             # Decimation
             decim = max(1, int(self.fs / max(1.0, self.params.target_rate_hz)))
@@ -469,14 +510,67 @@ class Pipeline:
                 "update_hz": 1.0 / loop_duration if loop_duration > 0 else 0,
                 "proc_kSps": (self.block / loop_duration) / 1000.0 if loop_duration > 0 else 0,
             }
+            
+            ###### 로그 파일에 데이터 쓰기 (조건 완화 및 안정성 강화) #####
+            current_time = time.time()
+            
+            # --- 실시간 신호/파생 값 로깅 (stream_log.csv) ---
+            # y에 데이터가 한 줄이라도 있으면 로그 기록 시도
+            if y.shape[0] > 0 and current_time - self._last_stream_log_time >= 3:
+                self._last_stream_log_time = current_time # 타이머 갱신
+                
+                ts_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                
+                last_ch_values = y[-1, :8].tolist()
+                
+                if derived_signals and derived_signals.get("series") and all(s for s in derived_signals["series"]):
+                    last_yt_values = [s[-1] for s in derived_signals["series"]]
+                else:
+                    last_yt_values = [0.0, 0.0, 0.0, 0.0]
+
+                current_params = [
+                    self.params.lpf_cutoff_hz,
+                    self.params.movavg_r,
+                    self.params.target_rate_hz
+                ]
+                
+                log_row = [ts_str] + last_ch_values + last_yt_values + current_params
+                
+                with open(self._stream_log_path, 'a', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(log_row)
+
+            # --- 성능 데이터 로깅 (perf_log.csv) - 10초에 한번 ---
+            if current_time - self._last_perf_log_time >= 10:
+                self._last_perf_log_time = current_time
+                ts_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+                log_row = [
+                    ts_str,
+                    f"{stats['read_ms']:.2f}",
+                    f"{stats['proc_ms']:.2f}",
+                    f"{stats['update_hz']:.2f}",
+                    f"{stats['proc_kSps']:.2f}"
+                ]
+                
+                with open(self._perf_log_path, 'a', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(log_row)
+            ###### [로그 끝] #####
 
             payload = {
                 "type": "frame",
                 "ts": time.time(),
                 "n_ch": int(y.shape[1]),
-                "window": { "x": self._roll_x.tolist(), "y": self._roll_y.tolist(), },
-                "block": { "n": int(y.shape[0]), "sample_stride": decim, },
-                "derived": derived_signals, # <--- 여기에 새로운 결과 삽입
+                "window": {
+                    "x": self._roll_x.tolist(),
+                    "y": self._roll_y.tolist(),
+                },
+                "block": {
+                    "n": int(y.shape[0]),
+                    "sample_stride": decim,
+                },
+                "derived": derived_signals,  # <--- 여기에 새로운 결과 삽입
                 "stats": stats,
                 "params": self.params.model_dump(),
                 # "multi" 키는 더 이상 필요 없으므로 제거
