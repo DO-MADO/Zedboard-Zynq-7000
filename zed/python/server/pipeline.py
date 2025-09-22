@@ -33,7 +33,7 @@ class PipelineParams:
     lpf_order: int = 4
     movavg_ch: int = 8
     movavg_r: int = 4
-    target_rate_hz: float = 100.0
+    target_rate_hz: float = 10.0
 
     # derived stage and quad selection (참고용으로 유지, 새 로직에서는 미사용)
     derived: str = "yt"   # "R" | "Ravg" | "y1" | "y2" | "y3" | "yt"

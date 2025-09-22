@@ -246,7 +246,7 @@ async def reset_params():
         "stats": stats,
         "params": default_params.model_dump(),
     }
-    await app.state.pipeline._broadcast(payload)
+    app.state.pipeline._broadcast(payload)
 
     return {"ok": True, "params": default_params.model_dump()}
 
@@ -311,7 +311,7 @@ if __name__ == "__main__":
         lpf_order=4,
         movavg_ch=8,
         movavg_r=4,
-        target_rate_hz=100.0,
+        target_rate_hz=10.0,
         block_samples=16384,
         derived="yt",
         out_ch=0,
