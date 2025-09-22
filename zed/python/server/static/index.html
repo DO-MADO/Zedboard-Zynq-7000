@@ -116,22 +116,43 @@
 
         <!-- 슬라이더 & 입력 박스 -->
         <div class="controls">
-          <label>LPF cutoff (Hz)</label>
-          <input type="range" id="lpf" min="10" max="20000" step="10" />
-          <input type="number" id="lpf_num" min="10" max="20000" step="10" style="width: 90px" />
+          <div class="param">
+            <label>LPF cutoff (Hz)</label>
+            <input type="range" id="lpf" min="10" max="20000" step="10" />
+            <input type="number" id="lpf_num" min="10" max="20000" step="10" style="width: 90px" />
+          </div>
 
-          <label>CH Moving Avg (N)</label>
-          <input type="range" id="ma_ch" min="1" max="64" step="1" />
-          <input type="number" id="ma_ch_num" min="1" max="64" step="1" style="width: 80px" />
+          <div class="param">
+            <label>Hardware Sampling Rate (kS/s)</label>
+            <input type="range" id="fs_rate" min="10" max="1000" step="10" />
+            <input type="number" id="fs_rate_num" min="10" max="1000" step="10" style="width: 90px" />
+          </div>
 
-          <label>R Moving Avg (N)</label>
-          <input type="range" id="ma_r" min="1" max="64" step="1" />
-          <input type="number" id="ma_r_num" min="1" max="64" step="1" style="width: 80px" />
+          <div class="param">
+            <label>CH Moving Avg (N)</label>
+            <input type="range" id="ma_ch" min="1" max="64" step="1" />
+            <input type="number" id="ma_ch_num" min="1" max="64" step="1" style="width: 80px" />
+          </div>
 
-          <label>Target rate (S/s)</label>
-          <input type="range" id="trate" min="10" max="2000" step="10" />
-          <input type="number" id="trate_num" min="10" max="2000" step="10" style="width: 90px" />
+          <div class="param">
+            <label>Target rate (S/s)</label>
+            <input type="range" id="trate" min="10" max="2000" step="10" />
+            <input type="number" id="trate_num" min="10" max="2000" step="10" style="width: 90px" />
+          </div>
+
+          <div class="param">
+            <label>R Moving Avg (N)</label>
+            <input type="range" id="ma_r" min="1" max="64" step="1" />
+            <input type="number" id="ma_r_num" min="1" max="64" step="1" style="width: 80px" />
+          </div>
+
+          <div class="param">
+            <label>Block Size (samples)</label>
+            <input type="range" id="block_size" min="1024" max="65536" step="1024" />
+            <input type="number" id="block_size_num" min="1024" max="65536" step="1024" style="width: 90px" />
+          </div>
         </div>
+
 
         <!-- 버튼 -->
         <div class="toolbar">
@@ -182,8 +203,8 @@
     </p>
 
     <small style="color: gray; display: block; margin-top: 14px; line-height: 2.2; font-style: italic;">
-      ※ Target Rate(샘플링 속도)는 루프 처리량 속도와 다릅니다.<br>
-      ※ y1 계산에서 분자는 항상 Ravg, 분모는 Denominator Coeffs(y1_den)입니다.
+      ※ <b>Hardware Sampling Rate</b>은 ADC가 <u>실제 데이터를 샘플링(수집)</u>하는 속도,<br>
+      ※ <b>Target Rate</b>은 <u>샘플링된 데이터를 시간 평균 처리</u>한 뒤 최종적으로 출력 되는 속도.
     </small>
   </div>
 </div>

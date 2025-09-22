@@ -40,10 +40,12 @@ static int read_attr_str(struct iio_channel *ch, const char *attr, char *dst, si
 
 int main(int argc, char **argv) {
     const char *ip = "192.168.1.133";
-    int block_samples = 16384;           // must match Python BLOCK_SAMPLES
+    int block_samples = 16384;
     const char *dev_name = "ad4858";
-    int debug_corr = 0;                  // optional: print correlation on first block
+    int debug_corr = 0;
+    long long sampling_freq = 0; // 샘플링 속도를 저장할 변수
 
+    // --- [수정] 커맨드 라인 인자 파싱 ---
     if (argc > 1 && argv[1] && argv[1][0]) ip = argv[1];
     if (argc > 2) {
         int tmp = atoi(argv[2]);
@@ -52,6 +54,12 @@ int main(int argc, char **argv) {
     if (argc > 3) {
         debug_corr = atoi(argv[3]);
     }
+    // ##### [추가] 5번째 인자로 샘플링 속도를 읽어옴 #####
+    if (argc > 4) {
+        sampling_freq = atoll(argv[4]); // atoll은 long long 타입으로 변환
+    }
+    // --- [수정 끝] ---
+
 
 #ifdef _WIN32
     _setmode(_fileno(stdout), _O_BINARY);   // make stdout binary
@@ -71,6 +79,23 @@ int main(int argc, char **argv) {
         iio_context_destroy(ctx);
         return 2;
     }
+
+    // ##### [추가] 샘플링 속도 Read/Write 로직 #####
+    long long hw_freq = 0;
+    if (sampling_freq > 0) {
+        // 쓰기
+        fprintf(stderr, "[iio_reader] Attempting to set sampling_frequency to %lld Hz\n", sampling_freq);
+        if (iio_device_attr_write_longlong(dev, "sampling_frequency", sampling_freq) < 0) {
+            fprintf(stderr, "WARN: Failed to set sampling_frequency. Using device default.\n");
+        }
+    }
+    // 읽기 (현재 하드웨어 값 확인)
+    if (iio_device_attr_read_longlong(dev, "sampling_frequency", &hw_freq) >= 0) {
+        fprintf(stderr, "[iio_reader] Current sampling_frequency = %lld Hz\n", hw_freq);
+    } else {
+        fprintf(stderr, "WARN: Could not read sampling_frequency attribute.\n");
+    }
+    // ##### [추가 끝] #####
 
     // Collect input channels (voltage*)
     const int total_ch = iio_device_get_channels_count(dev);
@@ -136,6 +161,13 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "[iio_reader] connected=%s, dev=%s, inputs=%d, block=%d\n",
             iio_context_get_name(ctx), dev_name, n_in, block_samples);
+
+    // === [추가] 블록 지속 시간(ms) 계산 ===
+    if (sampling_freq > 0) {
+        double block_time_ms = 1000.0 * (double)block_samples / (double)sampling_freq;
+        fprintf(stderr, "[iio_reader] block=%d samples ≈ %.3f ms @ %lld Hz\n",
+                block_samples, block_time_ms, sampling_freq);
+}
 
     int first_block = 1;
 

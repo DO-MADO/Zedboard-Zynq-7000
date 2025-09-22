@@ -10,17 +10,73 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background-color: #0f172a; /* 어두운 배경색 고정 */
+            background-color: #0f172a;
         }
         #chart-container {
             width: 100vw;
             height: 100vh;
             position: relative;
         }
+        /* Y축 범위 제어판 스타일 */
+        .y-axis-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(40, 50, 70, 0.85);
+            padding: 0; /* 내부 핸들을 위해 패딩 0으로 설정 */
+            border-radius: 8px;
+            color: white;
+            font-family: sans-serif;
+            font-size: 14px;
+            z-index: 10;
+            border: 1px solid #334155;
+            user-select: none; 
+        }
+        .drag-handle {
+            padding: 8px;
+            background-color: rgba(60, 70, 90, 0.9);
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            cursor: move;
+            text-align: center;
+            font-weight: bold;
+        }
+        /* ##### [추가] 컨트롤 부분을 감싸는 div 스타일 ##### */
+        .controls-content {
+            padding: 12px;
+        }
+        .y-axis-controls input[type="number"] {
+            width: 70px;
+            margin: 0 5px;
+            padding: 4px;
+            border-radius: 4px;
+            border: 1px solid #475569;
+            background-color: #1e293b;
+            color: white;
+        }
+        .y-axis-controls button {
+            margin-left: 8px;
+            padding: 4px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            border: 1px solid #475569;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
+    <div class="y-axis-controls" id="yAxisControlPanel">
+        <div class="drag-handle">:: Y축 제어 (드래그) ::</div>
+        <div class="controls-content">
+            <label for="yMinInput">Y축 범위:</label>
+            <input type="number" id="yMinInput" placeholder="최소값" step="0.1">
+            <span>~</span>
+            <input type="number" id="yMaxInput" placeholder="최대값" step="0.1">
+            <button id="applyYRangeBtn">적용</button>
+            <button id="resetYRangeBtn">자동</button>
+        </div>
+    </div>
+
     <div id="chart-container">
         <canvas id="accumulatingChart"></canvas>
     </div>

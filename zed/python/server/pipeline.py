@@ -26,8 +26,10 @@ from scipy.signal import butter, sosfilt, sosfilt_zi
 # ----------------- [2. 파라미터 정의] -----------------
 @dataclass
 class PipelineParams:
+    block_samples: int = 16384
+    sampling_frequency: int = 1000000   # Hz
     # filtering / averaging / rate
-    lpf_cutoff_hz: float = 5_000.0
+    lpf_cutoff_hz: float = 2_500.0
     lpf_order: int = 4
     movavg_ch: int = 8
     movavg_r: int = 4
@@ -47,10 +49,10 @@ class PipelineParams:
 
     # ⑥ y1 = polyval(y1_num, Ravg) / polyval(y1_den, Ravg)
     y1_num: List[float] = field(default_factory=lambda: [1.0, 0.0])
-    y1_den: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.01, 0.05, 1.0])
+    y1_den: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
     
     # ⑦ y2 = polyval(y2_coeffs, y1)
-    y2_coeffs: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, -0.01, 0.90, 0.0])
+    y2_coeffs: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0])
 
     # ⑧ y3 = polyval(y3_coeffs, y2)
     y3_coeffs: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0])
@@ -68,6 +70,8 @@ class PipelineParams:
 
     def model_dump(self) -> Dict[str, Any]:
         return {
+            "sampling_frequency": self.sampling_frequency,
+            "block_samples": self.block_samples,
             "lpf_cutoff_hz": self.lpf_cutoff_hz,
             "lpf_order": self.lpf_order,
             "movavg_ch": self.movavg_ch,
@@ -184,10 +188,10 @@ class SyntheticSource(SourceBase):
         return np.stack(data, axis=1).astype(np.float32, copy=True)
 
 class CProcSource(SourceBase):
-    def __init__(self, exe_path: str, ip: str, block_samples: int):
+    def __init__(self, exe_path: str, ip: str, block_samples: int, fs_hz: float):
         self.block = int(block_samples)
         self.proc = subprocess.Popen(
-            [exe_path, ip, str(self.block)],
+            [exe_path, ip, str(self.block), "0", str(int(fs_hz))], # debug_corr=0, fs_hz 전달
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0
@@ -247,72 +251,99 @@ class IIOSource(SourceBase):
 
 # ----------------- [5. Pipeline 클래스] -----------------
 class Pipeline:
-    def __init__(self, mode: str, uri: str, fs_hz: float, block_samples: int, exe_path: str, params: PipelineParams):
+    # ##### [수정] __init__ 인자에서 fs_hz 제거하고 block_samples 구조 반영 #####
+    def __init__(self, mode: str, uri: str, block_samples: int, exe_path: str, params: PipelineParams):
         self.params = params
-        self.fs = float(fs_hz)
-        self.block = int(block_samples)
         self.mode = mode
         self.uri = uri
+        self.block = int(block_samples)   # 블록 크기
         self.exe = exe_path
-
-        if mode == "synthetic":
-            self.src = SyntheticSource(fs_hz=self.fs, n_ch=8)
-        elif mode == "cproc":
-            self.src = CProcSource(exe_path=self.exe, ip=self.uri.split(":")[-1] if ":" in self.uri else self.uri, block_samples=self.block)
-        else:
-            self.src = IIOSource(uri=self.uri, fs_hz=self.fs)
-
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._sos = design_lpf(self.fs, self.params.lpf_cutoff_hz, self.params.lpf_order)
         
-        # ##### [코드 추가] 필터 상태를 저장할 변수 추가 #####
-        zi_one_ch = sosfilt_zi(self._sos)  #(Shape: [2, 2])
-        n_ch_initial = 8
-        self._lpf_state = np.stack([zi_one_ch] * n_ch_initial, axis=-1) #이 상태를 8개 채널만큼 복사하여 3차원 배열로 만듭니다. (Shape: [2, 2, 8])
-        self._n_ch_last = n_ch_initial
-        
-        # ##### [코드 추가 끝] #####
+        # self.fs는 이제 params 객체에서 직접 관리
+        self.fs = self.params.sampling_frequency
 
-        self._roll_sec = 5.0
-        self._roll_len = int(max(1, self.params.target_rate_hz * self._roll_sec))
-        self._roll_x = np.arange(self._roll_len, dtype=np.int32)
-        self._roll_y = None
+        # 소스 생성 및 스레드 초기화 로직을 별도 함수로 분리하여 호출
+        self._init_source_and_thread()
 
+        # 소비자(웹소켓 큐) 관리
         self._consumers: List[asyncio.Queue[str]] = []
         self._consumers_lock = threading.Lock()
 
-        # ##### [수정] 고유한 로그 파일 경로 생성 및 헤더(Header) 기록 #####
+        # 로그 파일 경로 생성 및 헤더 기록
         log_dir = Path(__file__).parent / "logs"
         today_dir = log_dir / time.strftime('%Y-%m-%d')
         today_dir.mkdir(parents=True, exist_ok=True)
 
-        # 고유한 파일 경로를 받아옴
         self._stream_log_path = get_unique_log_path(today_dir, "stream_log", ".csv")
         self._perf_log_path = get_unique_log_path(today_dir, "perf_log", ".csv")
         self._last_perf_log_time = time.time() 
         self._last_stream_log_time = time.time()
 
         # --- stream_log.csv 헤더 ---
-        # (새 파일이므로 항상 헤더를 새로 씁니다)
         stream_headers = [
             "시간", "ch0", "ch1", "ch2", "ch3", "ch4", "ch5", "ch6", "ch7",
             "yt0", "yt1", "yt2", "yt3",
-            "LRF설정", "R평균", "출력샘플속도"
+            "LPF설정", "R평균", "출력샘플속도(S/s)"
         ]
         with open(self._stream_log_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(stream_headers)
 
         # --- perf_log.csv 헤더 ---
-        # (새 파일이므로 항상 헤더를 새로 씁니다)
-        perf_headers = ["시간", "데이터수집(ms)", "신호처리(ms)", "화면갱신(Hz)", "루프처리량(kS/s)"]
+        perf_headers = ["시간", "샘플링 속도(kS/s)", "블록 크기(samples)", "블록 시간(ms)", "블록 처리량(blocks/s)","실제 처리량(kS/s/ch)"]
         with open(self._perf_log_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
+
             writer.writerow(perf_headers)
-        # ##### [수정 끝] #####
-        
-        
+
+    
+    # ##### [수정된] 소스/스레드 초기화 헬퍼 메서드 #####
+    def _init_source_and_thread(self):
+        """소스 객체와 처리 스레드를 생성하고 각종 상태 변수를 초기화하는 함수"""
+
+        # block_samples도 params에서 읽어옴 (기본값 fallback)
+        block_samples = getattr(self.params, "block_samples", self.block)
+        self.block = int(block_samples)
+
+        if self.mode == "cproc":
+            # C 리더 실행 시 fs_hz와 block_samples 전달
+            self.src = CProcSource(
+                exe_path=self.exe,
+                ip=self.uri,
+                block_samples=self.block,
+                fs_hz=self.fs
+            )
+        elif self.mode == "synthetic":
+            self.src = SyntheticSource(fs_hz=self.fs, n_ch=8)
+        else:  # iio
+            self.src = IIOSource(uri=self.uri, fs_hz=self.fs)
+
+        # 스레드/상태 초기화
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+        # LPF 필터 설계 및 상태값 초기화
+        self._sos = design_lpf(self.fs, self.params.lpf_cutoff_hz, self.params.lpf_order)
+        n_ch_initial = 8
+        self._n_ch_last = n_ch_initial
+
+        zi_one_ch = sosfilt_zi(self._sos)
+        self._lpf_state = np.stack([zi_one_ch] * n_ch_initial, axis=-1)
+
+        # 이동평균 상태값 초기화
+        movavg_N = self.params.movavg_ch
+        if movavg_N > 1:
+            self._movavg_state = np.zeros((movavg_N - 1, n_ch_initial), dtype=np.float32)
+        else:
+            self._movavg_state = None
+
+        # 롤링 윈도우 초기화
+        self._roll_sec = 5.0
+        self._roll_len = int(max(1, self.params.target_rate_hz * self._roll_sec))
+        self._roll_x = np.arange(self._roll_len, dtype=np.int32)
+        self._roll_y = None
+
+
     # ---------- coeffs I/O ----------
     @staticmethod
     def load_coeffs(path: Path):
@@ -349,8 +380,22 @@ class Pipeline:
         try:
             if hasattr(self.src, "proc"):
                 self.src.proc.terminate()
+            if self._thread.is_alive():
+                self._thread.join(timeout=1.0) # 스레드가 완전히 종료될 때까지 대기
         except Exception:
             pass
+            
+    # ##### [추가] 파이프라인 재시작 메서드 #####
+    def restart(self, new_params: "PipelineParams"):
+        """C 프로세스 재시작 등 파이프라인을 완전히 재시작"""
+        print("[PIPELINE] Restarting pipeline...")
+        self.stop() # 기존 스레드 및 C 프로세스 종료
+        self.params = new_params
+        self.fs = self.params.sampling_frequency
+        self._init_source_and_thread() # 새 파라미터로 소스 및 스레드 재생성
+        self.start() # 새 스레드 시작
+        print("[PIPELINE] Restart complete.")
+
 
     # ---------- params update/reset ----------
     def update_params(self, **kwargs):
@@ -361,6 +406,18 @@ class Pipeline:
                 changed[k] = v
         if any(k in changed for k in ("lpf_cutoff_hz", "lpf_order")):
             self._sos = design_lpf(self.fs, self.params.lpf_cutoff_hz, self.params.lpf_order)
+            
+        # ##### [추가] 이동평균 윈도우 크기 변경 시 상태 변수 리셋 #####
+        if "movavg_ch" in changed:
+            movavg_N = self.params.movavg_ch
+            # 현재 채널 수를 유지하며 상태 변수의 크기만 변경
+            n_ch = self._n_ch_last
+            if movavg_N > 1:
+                self._movavg_state = np.zeros((movavg_N - 1, n_ch), dtype=np.float32)
+            else:
+                self._movavg_state = None
+        # ##### [추가 끝] #####
+            
         if any(k in changed for k in ("target_rate_hz",)):
             self._roll_len = int(max(1, self.params.target_rate_hz * self._roll_sec))
             self._roll_x = np.arange(self._roll_len, dtype=np.int32)
@@ -412,7 +469,7 @@ class Pipeline:
             "series": output_series
         }
 
-        # ---------- main loop ----------
+    # ---------- main loop ----------
     def _run(self):
         last_loop_end_time = time.time()
         # loop_count = 0  # 로그 출력을 제어하기 위한 카운터
@@ -454,12 +511,35 @@ class Pipeline:
                 # 채널 수가 변경되면 LPF 상태를 올바른 shape으로 다시 생성
                 zi_one_ch = sosfilt_zi(self._sos)
                 self._lpf_state = np.stack([zi_one_ch] * n_ch, axis=-1)
+                
+                # ##### [추가] 채널 수 변경 시 이동평균 상태도 리셋 #####
+                movavg_N = self.params.movavg_ch
+                if movavg_N > 1:
+                    self._movavg_state = np.zeros((movavg_N - 1, n_ch), dtype=np.float32)
+                else:
+                    self._movavg_state = None
+                # ##### [추가 끝] #####
+                
+                
                 self._n_ch_last = n_ch
 
-            # Per-channel moving average (optional)
-            if self.params.movavg_ch and self.params.movavg_ch > 1:
-                for c in range(mat.shape[1]):
-                    mat[:, c] = moving_average(mat[:, c], self.params.movavg_ch)
+            # ##### [수정] 연속적인 이동평균 필터 적용 #####
+            movavg_N = self.params.movavg_ch
+            if movavg_N > 1 and self._movavg_state is not None:
+                # 이전 블록의 원본 데이터 마지막 부분을 현재 블록 앞에 이어붙임
+                mat_combined = np.vstack([self._movavg_state, mat])
+                
+                # 다음 블록을 위해 현재 블록의 '원본' 데이터 마지막 부분을 상태 변수에 미리 저장
+                self._movavg_state = mat[-(movavg_N - 1):, :]
+                
+                # 합쳐진 데이터에 이동평균 필터 적용
+                mat_averaged = np.empty_like(mat_combined)
+                for c in range(n_ch):
+                    mat_averaged[:, c] = moving_average(mat_combined[:, c], movavg_N)
+                
+                # 현재 블록에 해당하는 부분만 잘라냄
+                mat = mat_averaged[movavg_N - 1:, :]
+            # ##### [수정 끝] #####
 
             # LPF
             zf_list = []
@@ -504,25 +584,40 @@ class Pipeline:
             loop_duration = time.time() - last_loop_end_time
             last_loop_end_time = time.time()
 
+            # ===== [수정된 stats 구성] =====
+            fs_hz = float(self.fs) if hasattr(self, "fs") else 0.0
+            blk_n = int(self.block) if hasattr(self, "block") else 0
+            block_time_ms = (blk_n / fs_hz * 1000.0) if (fs_hz > 0 and blk_n > 0) else 0.0
+            blocks_per_sec = (fs_hz / blk_n) if (fs_hz > 0 and blk_n > 0) else 0.0
+
             stats = {
-                "read_ms": (t_read_done - t_start) * 1000,
-                "proc_ms": (time.time() - t_read_done) * 1000,
-                "update_hz": 1.0 / loop_duration if loop_duration > 0 else 0,
-                "proc_kSps": (self.block / loop_duration) / 1000.0 if loop_duration > 0 else 0,
+                "sampling_frequency": float(self.fs),
+                "block_samples": int(self.block),
+                "block_time_ms": 1000.0 * self.block / self.fs,
+                "blocks_per_sec": self.fs / self.block,
+                "sampling_frequency": float(self.fs) if hasattr(self, "fs") else None,
+                "block_samples": int(self.block) if hasattr(self, "block") else None,
+                "n_ch": n_ch,
             }
+            # ============================
             
+            # ✅ 실제 처리량(kS/s/ch) 계산 (각 체널 기준)
+            if loop_duration > 0 and stats["n_ch"] > 0:
+                stats["proc_kSps"] = (self.block / loop_duration) / 1000.0
+            else:
+                stats["proc_kSps"] = 0.0
+
             ###### 로그 파일에 데이터 쓰기 (조건 완화 및 안정성 강화) #####
             current_time = time.time()
-            
+
             # --- 실시간 신호/파생 값 로깅 (stream_log.csv) ---
-            # y에 데이터가 한 줄이라도 있으면 로그 기록 시도
             if y.shape[0] > 0 and current_time - self._last_stream_log_time >= 3:
-                self._last_stream_log_time = current_time # 타이머 갱신
-                
+                self._last_stream_log_time = current_time  # 타이머 갱신
+
                 ts_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-                
+
                 last_ch_values = y[-1, :8].tolist()
-                
+
                 if derived_signals and derived_signals.get("series") and all(s for s in derived_signals["series"]):
                     last_yt_values = [s[-1] for s in derived_signals["series"]]
                 else:
@@ -531,11 +626,11 @@ class Pipeline:
                 current_params = [
                     self.params.lpf_cutoff_hz,
                     self.params.movavg_r,
-                    self.params.target_rate_hz
+                    self.params.target_rate_hz,
                 ]
-                
+
                 log_row = [ts_str] + last_ch_values + last_yt_values + current_params
-                
+
                 with open(self._stream_log_path, 'a', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerow(log_row)
@@ -544,19 +639,22 @@ class Pipeline:
             if current_time - self._last_perf_log_time >= 10:
                 self._last_perf_log_time = current_time
                 ts_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                
+
+                # perf_log에 기록할 숫자 값 (단위 없음, raw value)
                 log_row = [
                     ts_str,
-                    f"{stats['read_ms']:.2f}",
-                    f"{stats['proc_ms']:.2f}",
-                    f"{stats['update_hz']:.2f}",
-                    f"{stats['proc_kSps']:.2f}"
+                    stats.get("sampling_frequency", 0),  # Hz 단위 (예: 1000000)
+                    stats.get("block_samples", 0),       # 샘플 개수 (예: 16384)
+                    stats.get("block_time_ms", 0.0),     # 블록 시간 (ms)
+                    stats.get("blocks_per_sec", 0.0),    # 초당 블록 개수
+                    stats.get("proc_kSps", 0.0),         # 실제 처리량(체널당)
                 ]
-                
+
                 with open(self._perf_log_path, 'a', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerow(log_row)
             ###### [로그 끝] #####
+
 
             payload = {
                 "type": "frame",

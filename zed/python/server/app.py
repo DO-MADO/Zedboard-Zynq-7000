@@ -82,6 +82,10 @@ class ParamsIn(BaseModel):
     y3_coeffs: Optional[List[float]] = None
 
     r_abs: Optional[bool] = None
+    
+    sampling_frequency: Optional[float] = None
+    block_samples: Optional[int] = None
+    
 
 
 # ============================================================
@@ -129,48 +133,123 @@ async def get_params():
 
 @app.post("/api/params")
 async def set_params(p: ParamsIn):
-    """파라미터 업데이트"""
+    """파라미터 업데이트: 레거시 매핑 유지, 변경된 항목만 반영,
+       샘플링 주파수나 블록 크기 변경 시 파이프라인 안전 재시작, coeffs 저장."""
+    # 1) 들어온 값 중 None이 아닌 것만 취함 (변경된 것만)
     body = {k: v for k, v in p.model_dump().items() if v is not None}
 
-    # --- 운영 정책: 항상 yt_4 모드로 고정 ---
+    # 2) 운영 정책: 항상 yt_4 모드로 고정(기존 동작 유지)
     body.pop("derived", None)
     body.pop("out_ch", None)
     body["derived_multi"] = "yt_4"
 
-    # --- 레거시 키 → 네이티브 키 매핑 ---
+    # 3) 레거시 키 -> 네이티브 키 매핑 (기능 보존)
     if "coeffs_y1" in body:
         body["y1_num"] = body.pop("coeffs_y1")
     if "coeffs_y2" in body:
         body["y2_coeffs"] = body.pop("coeffs_y2")
     if "coeffs_y3" in body:
-        body["y3_coeffs"] = body.pop("coeffs_y3")        
+        body["y3_coeffs"] = body.pop("coeffs_y3")
     if "coeffs_yt" in body:
         coeffs = body.pop("coeffs_yt")
-        if isinstance(coeffs, list) and len(coeffs) >= 2:
+        if isinstance(coeffs, (list, tuple)) and len(coeffs) >= 2:
             body["E"], body["F"] = float(coeffs[0]), float(coeffs[1])
 
-    # 파라미터 업데이트 실행
+    # 4) 파라미터 업데이트 호출 — pipeline.update_params는 "변경된 키 목록"을 반환한다 가정
     changed = app.state.pipeline.update_params(**body)
 
-    # coeffs/mode 변경 시 JSON 파일에도 저장
+    # 5) 샘플링 속도 또는 블록 크기 변경 감지 → 하드웨어/리더 재시작
+    def _changed_has(key, changed):
+        if isinstance(changed, (list, tuple, set)):
+            return key in changed
+        elif isinstance(changed, dict):
+            return key in changed.keys()
+        return False
+
+    try:
+        critical_changed = (
+            "sampling_frequency" in changed or
+            "block_samples" in changed
+        )
+    except Exception:
+        critical_changed = (
+            _changed_has("sampling_frequency", changed) or
+            _changed_has("block_samples", changed)
+        )
+
+    if critical_changed:
+        new_fs = getattr(app.state.pipeline.params, "sampling_frequency", "unknown")
+        new_block = getattr(app.state.pipeline.params, "block_samples", "unknown")
+
+        # 안전 로그
+        print(f"[INFO] Critical param changed -> restarting pipeline (fs={new_fs}, block={new_block})")
+
+        # 시도 1: pipeline.restart 제공 시 사용
+        if hasattr(app.state.pipeline, "restart") and callable(app.state.pipeline.restart):
+            try:
+                app.state.pipeline.restart(app.state.pipeline.params)
+            except Exception as e:
+                print("[WARN] pipeline.restart() failed, falling back to stop/start:", e)
+                try:
+                    app.state.pipeline.stop()
+                except Exception:
+                    pass
+                from pipeline import Pipeline
+                app.state.pipeline = Pipeline(app.state.pipeline.params)
+                app.state.pipeline.start()
+        else:
+            # 시도 2: stop() -> 재생성 -> start()
+            try:
+                app.state.pipeline.stop()
+            except Exception:
+                pass
+            from pipeline import Pipeline
+            app.state.pipeline = Pipeline(app.state.pipeline.params)
+            app.state.pipeline.start()
+
+    else:
+        # 샘플링 속도/블록 변경이 없으면 변경 항목만 실시간 반영
+        pass
+
+    # 6) coeffs/mode 변경 시 JSON 파일에도 저장 (원래 있던 기능 유지)
     if any(k in changed for k in (
         "alpha","beta","gamma","k","b",
         "y1_num","y1_den","y2_coeffs",
         "E","F","y3_coeffs","r_abs","derived_multi"
     )):
-        app.state.pipeline.save_coeffs(COEFFS_JSON)
+        try:
+            app.state.pipeline.save_coeffs(COEFFS_JSON)
+        except Exception as e:
+            print("[ERROR] Failed to save coeffs to JSON:", e)
 
+    # 7) 결과 반환 (changed + 현재 파라미터)
     return {"ok": True, "changed": changed,
             "params": _with_legacy_keys(app.state.pipeline.params.model_dump())}
 
 
+
+
 @app.post("/api/params/reset")
 async def reset_params():
-    """파라미터 기본값으로 초기화"""
-    app.state.pipeline.reset_params_to_defaults()
-    app.state.pipeline.update_params(derived_multi="yt_4", derived="yt", out_ch=0)
-    app.state.pipeline.save_coeffs(COEFFS_JSON)
-    return {"ok": True, "params": _with_legacy_keys(app.state.pipeline.params.model_dump())}
+    default_params = PipelineParams()  # 기본값
+    app.state.pipeline.restart(default_params)
+    
+    # ✅ 초기 stats 브로드캐스트
+    stats = {
+        "sampling_frequency": float(default_params.sampling_frequency),
+        "block_samples": int(default_params.block_samples),
+        "block_time_ms": (default_params.block_samples / default_params.sampling_frequency * 1000),
+        "blocks_per_sec": (default_params.sampling_frequency / default_params.block_samples),
+    }
+    payload = {
+        "type": "stats",
+        "stats": stats,
+        "params": default_params.model_dump(),
+    }
+    await app.state.pipeline._broadcast(payload)
+
+    return {"ok": True, "params": default_params.model_dump()}
+
 
 
 # ============================================================
@@ -210,7 +289,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["synthetic", "iio", "cproc"], default="synthetic")
     parser.add_argument("--uri", type=str, default="ip:192.168.1.133",
                         help="IIO URI (iio/pylibiio) or device IP for cproc")
-    parser.add_argument("--fs", type=float, default=100_000, help="Sample rate hint (Hz)")
+    parser.add_argument("--fs", type=float, default=1_000_000, help="Hardware sample rate (Hz)")
     parser.add_argument("--block", type=int, default=16384, help="Samples per block (C reader)")
     parser.add_argument("--exe", type=str, default="iio_reader", help="C reader 실행파일 경로 (cproc)")
     parser.add_argument("--host", type=str, default="127.0.0.1")
@@ -227,26 +306,34 @@ if __name__ == "__main__":
 
     # --- PipelineParams 초기화 ---
     params = PipelineParams(
-        lpf_cutoff_hz=5_000, lpf_order=4,
-        movavg_ch=8, movavg_r=4, target_rate_hz=100.0,
-        derived="yt", out_ch=0, derived_multi=coeffs.get("derived_multi", "yt_4"),
+        sampling_frequency=args.fs,
+        lpf_cutoff_hz=2_500,
+        lpf_order=4,
+        movavg_ch=8,
+        movavg_r=4,
+        target_rate_hz=100.0,
+        block_samples=16384,
+        derived="yt",
+        out_ch=0,
+        derived_multi=coeffs.get("derived_multi", "yt_4"),
+        
         alpha=coeffs.get("alpha", 1.0),
         beta=coeffs.get("beta", 1.0),
         gamma=coeffs.get("gamma", 1.0),
         k=coeffs.get("k", 10.0),
         b=coeffs.get("b", 0.0),
-        y1_num=coeffs.get("y1_num", [1.0, 0.0]),
-        y1_den=coeffs.get("y1_den", [0.0, 0.0, 0.0, 0.01, 0.05, 1.0]),
-        y2_coeffs=coeffs.get("y2_coeffs", [0.0, 0.0, 0.0, -0.01, 0.90, 0.0]),
+        y1_num=coeffs.get("y1_num", [1.0, 0.0]), # y=x
+        y1_den=coeffs.get("y1_den", [0.0, 0.0, 0.0, 0.0, 0.0, 1.0]), # y = 1
+        y2_coeffs=coeffs.get("y2_coeffs", [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]), # y = x
         E=coeffs.get("E", 1.0),
         F=coeffs.get("F", 0.0),
-        y3_coeffs=coeffs.get("y3_coeffs", [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]),
+        y3_coeffs=coeffs.get("y3_coeffs", [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]), # y = x
         r_abs=coeffs.get("r_abs", True),
     )
 
     # --- Pipeline 실행 ---
     pipeline = Pipeline(
-        mode=args.mode, uri=args.uri, fs_hz=args.fs,
+        mode=args.mode, uri=args.uri,
         block_samples=args.block, exe_path=args.exe,
         params=params,
     )

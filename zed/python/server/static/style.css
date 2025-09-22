@@ -101,12 +101,34 @@ body.gray-mode .card h2 {
 
 /* ===================== [컨트롤 (슬라이더/입력)] ===================== */
 .controls {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-  padding-left: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 두 열 */
+  gap: 16px 32px; /* 세로 16px, 가로 32px 간격 */
 }
+
+.param {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.param label {
+  flex: 0 0 190px;     /* 라벨은 항상 160px 차지 */
+  white-space: nowrap; /* 줄바꿈 금지 */
+  margin-right: 8px;   /* 라벨과 슬라이더 사이 여백 */
+  text-align: left;   /* 라벨 텍스트를 오른쪽 정렬 (선택) */
+  margin-left: 10px;
+}
+
+.param input[type="range"] {
+  flex: 1;
+  max-width: 250px;  /* 최대 길이 제한 */
+}
+
+.param input[type="number"] {
+  width: 80px;
+}
+
 .controls label {
   font-size: 12px;
   color: var(--label-color);

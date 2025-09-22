@@ -51,6 +51,16 @@ const saveYt    = document.getElementById('saveYt');
 const palette = ['#60A5FA','#F97316','#34D399','#F472B6','#A78BFA','#EF4444','#22D3EE','#EAB308'];
 
 
+const fsRate = document.getElementById('fs_rate');
+const fsRateNum = document.getElementById('fs_rate_num');
+
+const blockSize     = document.getElementById('block_size');
+const blockSizeNum  = document.getElementById('block_size_num');
+
+bindPair(fsRate, fsRateNum);
+
+
+
 // ============================================================
 //  [Figure 2 상태 관리]
 // ============================================================
@@ -75,6 +85,7 @@ bindPair(lpf, lpfNum);
 bindPair(maCh, maChNum);
 bindPair(maR, maRNum);
 bindPair(tRate, tRateNum);
+bindPair(blockSize, blockSizeNum);
 
 
 // ============================================================
@@ -323,6 +334,11 @@ function applyParamsToUI(p) {
   if (maRNum)   maRNum.value   = p.movavg_r;
   if (tRate)    tRate.value    = p.target_rate_hz;
   if (tRateNum) tRateNum.value = p.target_rate_hz;
+  // S/s(Hz)로 받은 값을 kS/s로 변환하여 UI에 표시
+  if (fsRate) fsRate.value = p.sampling_frequency / 1000;
+  if (fsRateNum) fsRateNum.value = p.sampling_frequency / 1000;
+  if (blockSize)    blockSize.value    = p.block_samples ?? 16384;
+  if (blockSizeNum) blockSizeNum.value = p.block_samples ?? 16384;
 
   // ----- 계수계 입력창 값 설정 -----
 
@@ -356,10 +372,12 @@ function applyParamsToUI(p) {
          <span class="param-value">${p.movavg_ch}</span></p>
       <p><strong>R Moving Avg(R 이동 평균 윈도우 크기)</strong> :
          <span class="param-value">${p.movavg_r}</span></p>
-      <p><strong>Target Rate(출력 샘플 속도, 설정값)</strong> :
+      <p><strong>Target Rate(출력 속도, 다운샘플링 후 UI 표시 속도)</strong> :
          <span class="param-value">${p.target_rate_hz} S/s</span></p>
-      <p><strong>Output Channel(출력 채널)</strong> :
-         <span class="param-value">${p.derived_multi ?? 'yt_4'}</span></p>
+      <p><strong>Sampling Frequency(하드웨어 ADC 속도)</strong> :
+         <span class="param-value">${p.sampling_frequency}</span></p>
+      <p><strong>Block Size(샘플 개수)</strong> :
+         <span class="param-value">${p.block_samples}</span></p>   
       <p><strong>y1 Denominator Coeffs(y1 분모 계수)</strong> :
          <span class="param-value">[${y1_den_val.join(' , ')}]</span></p>
       <p><strong>y2 Coefficients(y2 보정 계수)</strong> :
@@ -370,8 +388,8 @@ function applyParamsToUI(p) {
          <span class="param-value">[${yt_coeffs_val.join(' , ')}]</span></p>
        
       <medium style="color: #347dd6ff; display: block; margin-top: 14px; margin-left: 10px; line-height: 2.2; font-style: italic;">
-        ※ <b>Target Rate</b>는 시간평균 후의 출력 샘플링 속도입니다.<br>
-        ※ 대시보드 상단의 <b>루프 처리량</b>은 처리 루프의 실행 빈도이며 서로 다릅니다.<br>
+        ※ <b>Hardware Sampling Rate</b>은 ADC가 <u>실제 데이터를 샘플링(수집)</u>하는 속도,<br>
+        ※ <b>Target Rate</b>은 <u>샘플링된 데이터를 시간 평균 처리</u>한 뒤 최종적으로 출력 되는 속도.<br>
         ※ y1 계산 시 분자는 <b>Ravg</b> 값으로 고정되며, <b>분모 계수만</b> 수정됩니다.
       </medium>
     `;
@@ -392,10 +410,14 @@ async function postParams(diff) {
 // --- 파라미터 적용 버튼 ---
 document.getElementById('apply')?.addEventListener('click', ()=>{
   postParams({
+    // kS/s로 받은 값을 S/s(Hz)로 변환하여 전송
+    sampling_frequency: parseFloat(fsRateNum.value) * 1000,
+    lpf_cutoff_hz: parseFloat(lpfNum.value),
     lpf_cutoff_hz: parseFloat(lpfNum.value),
     movavg_ch:     parseInt(maChNum.value),
     movavg_r:      parseInt(maRNum.value),
     target_rate_hz: parseFloat(tRateNum.value),
+    block_samples: parseInt(blockSizeNum.value),
   });
 });
 
@@ -446,12 +468,35 @@ function connectWS() {
 
         if (m.stats && clockEl) {
           const s = m.stats;
+
+          // 블록 시간 (ms)
+          const blockTimeMs = (s.block_samples && s.sampling_frequency)
+            ? (s.block_samples / s.sampling_frequency * 1000)
+            : 0;
+
+          // 초당 블록 처리량 (blocks/s)
+          const blocksPerSec = (s.block_samples && s.sampling_frequency)
+            ? (s.sampling_frequency / s.block_samples)
+            : 0;
+
+          // 샘플링 속도 (kS/s)
+          const fs_kSps = s.sampling_frequency ? (s.sampling_frequency / 1000) : 0;
+
+          // 실제 처리량 (kS/s/ch) — pipeline.py에서 stats.proc_kSps로 전달됨
+          const proc_kSps = s.proc_kSps ? s.proc_kSps : 0;
+          
+          // 헤더 영역 실시간 표시
           clockEl.textContent =
-          `데이터 수집: ${s.read_ms.toFixed(1)}ms | 신호 처리: ${s.proc_ms.toFixed(1)}ms | 화면 갱신: ${s.update_hz.toFixed(1)}Hz | 루프 처리량: ${s.proc_kSps.toFixed(1)}kS/s`
+            `샘플링 속도: ${fs_kSps.toFixed(1)} kS/s | ` +
+            `블록 크기: ${s.block_samples} samples | ` +
+            `블록 시간: ${blockTimeMs.toFixed(2)} ms | ` +
+            `블록 처리량: ${blocksPerSec.toFixed(1)} blocks/s | `+
+            `실제 처리량: ${proc_kSps.toFixed(1)} kS/s/ch`;
         }
       }
     } catch(e) { console.error(e); }
   };
+  
   ws.onclose = ()=>{ setTimeout(connectWS, 1000); };
 }
 
