@@ -123,9 +123,44 @@ window.addEventListener("load", () => {
     // 수신 데이터 임시 저장 버퍼
     let buffer = [];
 
+
+
+    // 헤더 표시용 요소 참조
+    const clockEl = document.getElementById("clock");
+    
     ws.onmessage = (ev) => {
       try {
         const m = JSON.parse(ev.data);
+
+        // === 성능 헤더 영역 업데이트 ===
+        if (m.stats && clockEl) {
+          const s = m.stats;
+
+          // 블록 시간 (ms)
+          const blockTimeMs = (s.block_samples && s.sampling_frequency)
+            ? (s.block_samples / s.sampling_frequency * 1000)
+            : 0;
+
+          // 초당 블록 처리량 (blocks/s)
+          const blocksPerSec = (s.block_samples && s.sampling_frequency)
+            ? (s.sampling_frequency / s.block_samples)
+            : 0;
+
+          // 샘플링 속도 (kS/s)
+          const fs_kSps = s.sampling_frequency ? (s.sampling_frequency / 1000) : 0;
+
+          // 실제 처리량 (kS/s/ch)
+          const proc_kSps = s.proc_kSps ? s.proc_kSps : 0;
+
+          // 헤더 영역 실시간 표시
+          clockEl.textContent =
+            `샘플링 속도: ${fs_kSps.toFixed(1)} kS/s | ` +
+            `블록 크기: ${s.block_samples} samples | ` +
+            `블록 시간: ${blockTimeMs.toFixed(2)} ms | ` +
+            `블록 처리량: ${blocksPerSec.toFixed(1)} blocks/s | ` +
+            `실제 처리량: ${proc_kSps.toFixed(1)} kS/s/ch`;
+        }
+        
         if (m.type === "frame" && m.window && m.window.y) {
           // 새로 받은 raw 샘플들 (형태: [[ch0, ch1], [ch0, ch1], ...])
           const newSamples = m.window.y.slice(-m.block.n);
