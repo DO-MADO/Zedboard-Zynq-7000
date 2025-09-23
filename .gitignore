@@ -1,0 +1,61 @@
+# ===== Python virtualenv =====
+.venv/
+env/
+venv/
+
+# ===== Python packaging / cache =====
+*.egg-info/
+.eggs/
+dist/
+build/
+*.manifest
+
+# ===== FastAPI / Uvicorn runtime =====
+*.db
+*.sqlite3
+*.sqlite
+__pycache__/
+*.py[cod]
+
+# ===== Server logs / runtime artifacts =====
+logs/
+python/server/logs/
+*.pid
+*.lock
+*.csv
+
+# ===== Jupyter / Notebook =====
+.ipynb_checkpoints/
+*.ipynb
+
+# ===== OS-specific =====
+.DS_Store
+Thumbs.db
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+
+# ===== Coverage / Test =====
+.coverage
+htmlcov/
+.tox/
+pytest_cache/
+
+# ===== C/C++ build artifacts =====
+Debug/
+Release/
+x64/
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.exp
+*.ilk
+*.obj
+*.o
+*.pdb
+*.idb
