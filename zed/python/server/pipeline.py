@@ -450,8 +450,8 @@ class Pipeline:
             }
 
         # 채널 인덱스 정의: 분자(센서), 분모(표준)
-        sensor_indices = [1, 3, 5, 7]   # I_1
-        standard_indices = [0, 2, 4, 6] # I_2
+        sensor_indices = [0, 2, 4, 6]   # I_1  
+        standard_indices = [1, 3, 5, 7] # I_2
 
         output_series = []
         for i in range(4):

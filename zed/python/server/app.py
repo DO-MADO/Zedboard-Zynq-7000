@@ -118,7 +118,7 @@ async def index():
 @app.get("/test")
 async def test_page():
     """누적 차트 페이지(test.html) 반환"""
-    test_html_path = STATIC / "test.html"
+    test_html_path = STATIC / "testPage" / "test.html"
     if test_html_path.exists():
         return FileResponse(test_html_path)
     return {"ok": False, "message": "test.html not found."}
