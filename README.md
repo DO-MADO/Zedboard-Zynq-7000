@@ -1,4 +1,4 @@
-<img width="1895" height="907" alt="화이트화면" src="https://github.com/user-attachments/assets/975a72d7-1d62-49a2-9f43-f02b03e9c616" /># 📌 Multi-channel ADC Streaming Demo (AD4858/Zynq-7000)
+# 📌 Multi-channel ADC Streaming Demo (AD4858/Zynq-7000)
 
 <br>
 
