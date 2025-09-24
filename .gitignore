@@ -7,7 +7,8 @@ venv/
 *.egg-info/
 .eggs/
 dist/
-build/
+build/              # Top-level build folder
+*/build/            # Subdirectory build folders
 *.manifest
 
 # ===== FastAPI / Uvicorn runtime =====
@@ -59,3 +60,10 @@ x64/
 *.o
 *.pdb
 *.idb
+
+# ===== CMake cache/artifacts =====
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json

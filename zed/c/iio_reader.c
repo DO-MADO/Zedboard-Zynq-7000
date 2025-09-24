@@ -1,5 +1,9 @@
-// iio_reader.c : Read AD4858 blocks via libiio and write float32 frames to stdout (binary)
-// Platform: Windows/MSVC and Linux/GCC compatible. ASCII-only comments only.
+// ============================================================
+//  iio_reader.c
+//  - Read AD4858 blocks via libiio and write float32 frames to stdout (binary)
+//  - Platform: Windows/MSVC and Linux/GCC compatible
+//  - ASCII-only comments only
+// ============================================================
 
 #include <iio.h>
 #include <stdio.h>
@@ -14,7 +18,10 @@
   #include <io.h>
 #endif
 
-// Packed header: [n_samp(uint32), n_ch(uint32)]
+// ============================================================
+//  [Struct Definition]
+//  Packed header for each data block: [n_samp(uint32), n_ch(uint32)]
+// ============================================================
 #ifdef _MSC_VER
   #pragma pack(push, 1)
   typedef struct {
@@ -29,7 +36,11 @@
   } block_hdr_t;
 #endif
 
-// Helper: read channel attribute into buffer. Returns 1 on success, 0 on failure.
+// ============================================================
+//  [Helper Function]
+//  read_attr_str: read channel attribute into buffer
+//  - Returns 1 on success, 0 on failure
+// ============================================================
 static int read_attr_str(struct iio_channel *ch, const char *attr, char *dst, size_t dst_len) {
     long n = iio_channel_attr_read(ch, attr, dst, dst_len);
     if (n <= 0) return 0;
@@ -38,14 +49,27 @@ static int read_attr_str(struct iio_channel *ch, const char *attr, char *dst, si
     return 1;
 }
 
+// ============================================================
+//  [Main Function]
+//  Usage: iio_reader <ip> <block_samples> <debug_corr> <sampling_freq>
+//  - Connects to AD4858 device
+//  - Reads data blocks via libiio
+//  - Writes binary float32 stream to stdout
+// ============================================================
 int main(int argc, char **argv) {
-    const char *ip = "192.168.1.133";
-    int block_samples = 16384;
-    const char *dev_name = "ad4858";
-    int debug_corr = 0;
-    long long sampling_freq = 0; // 샘플링 속도를 저장할 변수
+    const char *ip = "192.168.1.133";   // Default IP
+    int block_samples = 16384;          // Default block size
+    const char *dev_name = "ad4858";    // Device name
+    int debug_corr = 0;                 // Debug correlation flag
+    long long sampling_freq = 0;        // User-specified sampling frequency (Hz)
 
-    // --- [수정] 커맨드 라인 인자 파싱 ---
+    // ------------------------------------------------------------
+    // [Argument Parsing]
+    // argv[1] = target IP
+    // argv[2] = block_samples
+    // argv[3] = debug_corr
+    // argv[4] = sampling_frequency
+    // ------------------------------------------------------------
     if (argc > 1 && argv[1] && argv[1][0]) ip = argv[1];
     if (argc > 2) {
         int tmp = atoi(argv[2]);
@@ -54,25 +78,29 @@ int main(int argc, char **argv) {
     if (argc > 3) {
         debug_corr = atoi(argv[3]);
     }
-    // ##### [추가] 5번째 인자로 샘플링 속도를 읽어옴 #####
     if (argc > 4) {
-        sampling_freq = atoll(argv[4]); // atoll은 long long 타입으로 변환
+        sampling_freq = atoll(argv[4]); // atoll = string → long long
     }
-    // --- [수정 끝] ---
-
 
 #ifdef _WIN32
-    _setmode(_fileno(stdout), _O_BINARY);   // make stdout binary
+    // Windows: set stdout to binary mode
+    _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
-    // Connect
+    // ------------------------------------------------------------
+    // [Context Connection]
+    // Connect to remote IIO device (IP)
+    // ------------------------------------------------------------
     struct iio_context *ctx = iio_create_network_context(ip);
     if (!ctx) {
         fprintf(stderr, "ERR: failed to connect to %s\n", ip);
         return 1;
     }
 
-    // Find device
+    // ------------------------------------------------------------
+    // [Device Find]
+    // Locate AD4858 device inside IIO context
+    // ------------------------------------------------------------
     struct iio_device *dev = iio_context_find_device(ctx, dev_name);
     if (!dev) {
         fprintf(stderr, "ERR: device '%s' not found\n", dev_name);
@@ -80,24 +108,28 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    // ##### [추가] 샘플링 속도 Read/Write 로직 #####
+    // ------------------------------------------------------------
+    // [Sampling Frequency Setup]
+    // - If provided by user, attempt to write sampling_frequency
+    // - Always read back current hw frequency for confirmation
+    // ------------------------------------------------------------
     long long hw_freq = 0;
     if (sampling_freq > 0) {
-        // 쓰기
         fprintf(stderr, "[iio_reader] Attempting to set sampling_frequency to %lld Hz\n", sampling_freq);
         if (iio_device_attr_write_longlong(dev, "sampling_frequency", sampling_freq) < 0) {
             fprintf(stderr, "WARN: Failed to set sampling_frequency. Using device default.\n");
         }
     }
-    // 읽기 (현재 하드웨어 값 확인)
     if (iio_device_attr_read_longlong(dev, "sampling_frequency", &hw_freq) >= 0) {
         fprintf(stderr, "[iio_reader] Current sampling_frequency = %lld Hz\n", hw_freq);
     } else {
         fprintf(stderr, "WARN: Could not read sampling_frequency attribute.\n");
     }
-    // ##### [추가 끝] #####
 
-    // Collect input channels (voltage*)
+    // ------------------------------------------------------------
+    // [Channel Enumeration]
+    // Collect all voltage* input channels and read their scale
+    // ------------------------------------------------------------
     const int total_ch = iio_device_get_channels_count(dev);
     if (total_ch <= 0) {
         fprintf(stderr, "ERR: no channels on device\n");
@@ -121,11 +153,12 @@ int main(int argc, char **argv) {
         in_ch[n_in] = ch;
         iio_channel_enable(ch);
 
+        // Read scale factor for channel
         double s = 1.0;
         char buf[64];
         if (read_attr_str(ch, "scale", buf, sizeof(buf))) {
             s = atof(buf);
-            // === Heuristic unit correction ===
+            // Heuristic unit correction
             if (s > 1e4)         s *= 1e-6;   // assume µV → V
             else if (s > 10.0)   s *= 1e-3;   // assume mV → V
         }
@@ -141,7 +174,10 @@ int main(int argc, char **argv) {
         return 5;
     }
 
-    // Create buffer
+    // ------------------------------------------------------------
+    // [Buffer Creation]
+    // Create IIO buffer with block_samples
+    // ------------------------------------------------------------
     struct iio_buffer *buf = iio_device_create_buffer(dev, (size_t)block_samples, false);
     if (!buf) {
         fprintf(stderr, "ERR: failed to create buffer (block=%d)\n", block_samples);
@@ -162,16 +198,25 @@ int main(int argc, char **argv) {
     fprintf(stderr, "[iio_reader] connected=%s, dev=%s, inputs=%d, block=%d\n",
             iio_context_get_name(ctx), dev_name, n_in, block_samples);
 
-    // === [추가] 블록 지속 시간(ms) 계산 ===
+    // ------------------------------------------------------------
+    // [Block Time Estimation]
+    // Calculate block duration (ms) from block_samples and fs
+    // ------------------------------------------------------------
     if (sampling_freq > 0) {
         double block_time_ms = 1000.0 * (double)block_samples / (double)sampling_freq;
         fprintf(stderr, "[iio_reader] block=%d samples ≈ %.3f ms @ %lld Hz\n",
                 block_samples, block_time_ms, sampling_freq);
-}
+    }
 
     int first_block = 1;
 
-    // Main loop
+    // ============================================================
+    //  [Main Acquisition Loop]
+    //  - Refills buffer
+    //  - Converts raw samples to float
+    //  - Writes header + block data to stdout
+    //  - Optionally prints debug correlation
+    // ============================================================
     for (;;) {
         if (iio_buffer_refill(buf) < 0) {
             fprintf(stderr, "ERR: buffer refill\n");
@@ -185,16 +230,16 @@ int main(int argc, char **argv) {
 
             for (int s = 0; s < block_samples; s++) {
                 int64_t val = 0;
-                iio_channel_convert(ch, &val, p);   // safe conversion
+                iio_channel_convert(ch, &val, p);   // Convert raw sample
                 out[(size_t)s * (size_t)n_in + ci] = (float)(val * scales[ci]);
                 p += step;
             }
         }
 
+        // Write block header + data to stdout
         block_hdr_t hdr;
         hdr.n_samp = (uint32_t)block_samples;
         hdr.n_ch   = (uint32_t)n_in;
-
         fwrite(&hdr, sizeof(hdr), 1, stdout);
         fwrite(out, sizeof(float), (size_t)block_samples * (size_t)n_in, stdout);
         fflush(stdout);
@@ -224,6 +269,10 @@ int main(int argc, char **argv) {
         }
     }
 
+    // ------------------------------------------------------------
+    // [Cleanup]
+    // Free all resources and close context
+    // ------------------------------------------------------------
     free(out);
     iio_buffer_destroy(buf);
     free(in_ch);

@@ -5,7 +5,7 @@
   "lpf_order": 4,
   "movavg_ch": 8,
   "movavg_r": 4,
-  "target_rate_hz": 100.0,
+  "target_rate_hz": 10.0,
   "derived": "yt",
   "out_ch": 0,
   "alpha": 1.0,
@@ -23,7 +23,7 @@
     0.0,
     0.0,
     0.0,
-    1.0
+    5.0
   ],
   "y2_coeffs": [
     0.0,

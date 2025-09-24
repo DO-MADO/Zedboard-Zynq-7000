@@ -1,5 +1,9 @@
-// iio_reader_monitor_aligned.c : AD4858 실험 모니터링용 (샘플 기준 정렬 출력)
-// 각 샘플마다 모든 채널 값을 묶어서, 1초(100000 샘플)마다 한 줄 출력한다.
+// ============================================================
+//  iio_reader_test.c
+//  - AD4858 simple monitoring tool (test purpose)
+//  - Each channel value printed every N-th sample
+//  - ASCII-only comments only
+// ============================================================
 
 #include <iio.h>
 #include <stdio.h>
@@ -12,7 +16,11 @@
   #include <io.h>
 #endif
 
-// Helper: read attribute string
+// ============================================================
+//  [Helper Function]
+//  read_attr_str: read channel attribute into buffer
+//  - Returns 1 on success, 0 on failure
+// ============================================================
 static int read_attr_str(struct iio_channel *ch, const char *attr, char *dst, size_t dst_len) {
     long n = iio_channel_attr_read(ch, attr, dst, dst_len);
     if (n <= 0) return 0;
@@ -21,29 +29,53 @@ static int read_attr_str(struct iio_channel *ch, const char *attr, char *dst, si
     return 1;
 }
 
+// ============================================================
+//  [Struct Definition]
+//  ch_info_t: per-channel information
+//  - ch      : pointer to iio_channel
+//  - index   : channel index
+//  - scale   : scale factor (V/LSB)
+//  - offset  : offset correction
+//  - id      : channel identifier string
+//  - p       : buffer pointer (updated every refill)
+// ============================================================
 typedef struct {
     struct iio_channel *ch;
     int index;
     double scale;
     long offset;
     const char *id;
-    const uint8_t *p;   // pointer into buffer
+    const uint8_t *p;
 } ch_info_t;
 
+// ============================================================
+//  [Main Function]
+//  Usage: iio_reader_test <ip>
+//  - Connects to AD4858 device via network context
+//  - Enumerates voltage input channels
+//  - Prints all channel values every 100000th sample
+// ============================================================
 int main(int argc, char **argv) {
-    const char *ip = "192.168.1.133";    // 장치 IP
-    int block_samples = 1024;            // 블록 크기 (1024 샘플씩 읽음)
-    const char *dev_name = "ad4858";
+    const char *ip = "192.168.1.133";    // Default device IP
+    int block_samples = 1024;            // Block size (samples per buffer)
+    const char *dev_name = "ad4858";     // Device name
 
     if (argc > 1 && argv[1] && argv[1][0]) ip = argv[1];
 
-    // Context 생성
+    // ------------------------------------------------------------
+    // [Context Initialization]
+    // Connect to remote IIO device using IP
+    // ------------------------------------------------------------
     struct iio_context *ctx = iio_create_network_context(ip);
     if (!ctx) {
         fprintf(stderr, "ERR: failed to connect to %s\n", ip);
         return 1;
     }
 
+    // ------------------------------------------------------------
+    // [Device Discovery]
+    // Find the target device inside context
+    // ------------------------------------------------------------
     struct iio_device *dev = iio_context_find_device(ctx, dev_name);
     if (!dev) {
         fprintf(stderr, "ERR: device '%s' not found\n", dev_name);
@@ -51,11 +83,14 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    // ------------------------------------------------------------
+    // [Channel Enumeration]
+    // Collect input channels (voltage*) and read attributes
+    // ------------------------------------------------------------
     int total_ch = iio_device_get_channels_count(dev);
     ch_info_t *chs = (ch_info_t*)calloc((size_t)total_ch, sizeof(*chs));
     int n_in = 0;
 
-    // 채널 스캔
     for (int i = 0; i < total_ch; i++) {
         struct iio_channel *ch = iio_device_get_channel(dev, i);
         if (!ch) continue;
@@ -72,7 +107,7 @@ int main(int argc, char **argv) {
         chs[n_in].index = iio_channel_get_index(ch);
         iio_channel_enable(ch);
 
-        // scale
+        // --- Read scale attribute ---
         double s = 1.0;
         char buf[64];
         if (read_attr_str(ch, "scale", buf, sizeof(buf))) {
@@ -80,7 +115,7 @@ int main(int argc, char **argv) {
         }
         chs[n_in].scale = s;
 
-        // offset
+        // --- Read offset attribute ---
         long off = 0;
         if (read_attr_str(ch, "offset", buf, sizeof(buf))) {
             off = atol(buf);
@@ -100,7 +135,10 @@ int main(int argc, char **argv) {
         return 3;
     }
 
-    // 버퍼 생성
+    // ------------------------------------------------------------
+    // [Buffer Creation]
+    // Create buffer for block_samples
+    // ------------------------------------------------------------
     struct iio_buffer *buf = iio_device_create_buffer(dev, (size_t)block_samples, false);
     if (!buf) {
         fprintf(stderr, "ERR: buffer create failed\n");
@@ -111,6 +149,12 @@ int main(int argc, char **argv) {
 
     printf("=== Realtime monitoring start (every 100000th sample) ===\n");
 
+    // ============================================================
+    //  [Main Acquisition Loop]
+    //  - Refill buffer
+    //  - Iterate over samples
+    //  - Print channel values every 100000th sample
+    // ============================================================
     long sample_count = 0;
     for (;;) {
         if (iio_buffer_refill(buf) < 0) {
@@ -118,15 +162,15 @@ int main(int argc, char **argv) {
             break;
         }
 
-        // 채널별 버퍼 포인터 초기화
+        // Initialize channel pointers for new buffer
         for (int ci = 0; ci < n_in; ci++) {
             chs[ci].p = (const uint8_t *)iio_buffer_first(buf, chs[ci].ch);
         }
         ptrdiff_t step = iio_buffer_step(buf);
 
-        // 샘플 기준으로 순서대로 출력
+        // Loop over block samples
         for (int s = 0; s < block_samples; s++) {
-            if (sample_count % 100000 == 0) {  // 1초마다 출력 (100kS/s 기준)
+            if (sample_count % 100000 == 0) {  // Print every 100k samples
                 printf("[%ld] ", sample_count);
                 for (int ci = 0; ci < n_in; ci++) {
                     int64_t raw = 0;
@@ -139,7 +183,7 @@ int main(int argc, char **argv) {
                 }
             }
 
-            // 포인터 전진
+            // Advance buffer pointers
             for (int ci = 0; ci < n_in; ci++) {
                 chs[ci].p += step;
             }
@@ -149,6 +193,10 @@ int main(int argc, char **argv) {
         fflush(stdout);
     }
 
+    // ------------------------------------------------------------
+    // [Cleanup]
+    // Free all allocated resources
+    // ------------------------------------------------------------
     iio_buffer_destroy(buf);
     free(chs);
     iio_context_destroy(ctx);

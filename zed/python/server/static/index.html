@@ -1,3 +1,14 @@
+<!-- ============================================================
+  [신호처리보드 실시간 대시보드 index.html]
+  - Chart.js + chartjs-plugin-zoom 기반 실시간 UI
+  - 8채널 ADC 신호 표시 / 파생 신호 표시 / 파라미터 제어
+  - README 모달 포함 (사용 안내)
+  - 외부 의존성:
+      * /static/style.css (메인 스타일)
+      * /static/app.js (실시간 WebSocket + Chart.js 연동)
+      * CDN: Chart.js, chartjs-plugin-zoom
+============================================================ -->
+
 <!DOCTYPE html>
 <html lang="ko">
   <head>
@@ -7,6 +18,7 @@
     <title>신호처리보드 실시간 대시보드</title>
 
     <!-- ===================== [폰트 & 스타일] ===================== -->
+    <!-- Google Fonts (Inter) + 메인 CSS -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -16,158 +28,196 @@
     <link rel="stylesheet" href="/static/style.css" />
 
     <!-- ===================== [차트 라이브러리] ===================== -->
+    <!-- Chart.js (v4) + Zoom 플러그인 (CDN 로드) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
   </head>
 
   <body>
-    <!-- ===================== [헤더 영역] ===================== -->
-    <header>
-      <div class="brand">신호처리보드 실시간 대시보드 — Local Web
-        <a href="/test" class="test-btn">누적 데이터 차트</a>
-      </div>
-      <div class="header-controls">
-        <div class="muted" id="clock" aria-live="polite">—</div>
-        <label class="switch">
-          <input type="checkbox" id="themeToggleInput" />
-          <span class="slider"></span>
-        </label>
+  <!-- ============================================================
+    [헤더 영역]
+    - 페이지 브랜드(타이틀 + 링크)
+    - 전역 컨트롤 (실시간 상태 표시, 테마 토글, README 버튼)
+  ============================================================ -->
+  <header>
+    <!-- 브랜드 / 네비게이션 -->
+    <div class="brand">
+      신호처리보드 실시간 대시보드 — Local Web
+      <a href="/test" class="test-btn">누적 데이터 차트</a>
+    </div>
 
-        <!-- README 버튼 -->
-    <button id="readmeBtn" class="readme-btn">README</button>
- 
-      </div>
-    </header>
+    <!-- 헤더 컨트롤: 상태 표시 + 테마 토글 + README 버튼 -->
+    <div class="header-controls">
+      <!-- 실시간 상태 표시 (샘플링 속도, 처리량 등) -->
+      <div class="muted" id="clock" aria-live="polite">—</div>
 
-    <!-- ===================== [메인 콘텐츠] ===================== -->
-    <main class="grid">
-      <!-- [섹션 1: 8채널 실시간 차트] -->
-      <section class="card">
-        <h2>8ch 실시간 차트 (줌/드래그 가능)</h2>
-        <div class="toolbar">
-          <div id="fig1Bar" class="legend-bar"></div>
-          <button id="resetZoom1" class="btn">Zoom 리셋 (더블클릭 가능)</button>
+      <!-- 테마 토글 스위치 (Dark ↔ Gray) -->
+      <label class="switch">
+        <input type="checkbox" id="themeToggleInput" />
+        <span class="slider"></span>
+      </label>
+
+      <!-- README 버튼 (사용 안내 모달 오픈) -->
+      <button id="readmeBtn" class="readme-btn">README</button>
+    </div>
+  </header>
+
+<!-- ===================== [메인 콘텐츠] ===================== -->
+  <main class="grid">
+    <!-- ============================================================
+      [섹션 1: 8채널 실시간 차트]
+      - ADC 원신호(멀티채널) 실시간 표시
+      - 채널별 on/off 토글 + 줌/드래그 지원
+    ============================================================ -->
+    <section class="card">
+      <h2>8ch 실시간 차트 (줌/드래그 가능)</h2>
+      <div class="toolbar">
+        <div id="fig1Bar" class="legend-bar"></div>
+        <button id="resetZoom1" class="btn">Zoom 리셋 (더블클릭 가능)</button>
+      </div>
+      <canvas id="fig1"></canvas>
+    </section>
+
+    <!-- ============================================================
+      [섹션 2: 파생/보정 신호 + 계수 입력]
+      - y1, y2, y3, yt 계수값을 실시간 입력/저장 가능
+      - Derived/보정 신호 그래프 표시 + on/off 토글 지원
+      - 계수 변경 시 서버(postParams)로 전송 → 즉시 차트 업데이트
+    ============================================================ -->
+    <section class="card">
+      <h2>파생/보정 신호</h2>
+
+      <!-- --------------------- [계수 제어 UI] --------------------- -->
+      <!-- 단계(stage) 선택 (현재 yt만 지원) -->
+      <div class="horizontal-controls">
+        <div class="control-group">
+          <label>단계</label>
+          <select id="stage">
+            <option value="yt" selected>yt</option>
+          </select>
         </div>
-        <canvas id="fig1"></canvas>
-      </section>
 
-      <!-- [섹션 2: 파생/보정 신호] -->
-      <section class="card">
-        <h2>파생/보정 신호</h2>
+        <!-- 표시 모드 선택 (단일/멀티) -->
+        <div class="control-group">
+          <label>표시 모드</label>
+          <select id="multiSel">
+            <option value="yt_4">yt 4채널</option>
+          </select>
+        </div>
 
-        <!-- 컨트롤 UI -->
-        <div class="horizontal-controls">
-          <div class="control-group">
-            <label>단계</label>
-            <select id="stage">
-              <option value="yt" selected>yt</option>
-            </select>
+        <div style="width: 16px"></div>
+
+        <!-- y1 분모 계수 (UI 입력값 → 서버 전송) -->
+        <div class="control-group">
+          <label>y1 분모 계수 [a5,a4,a3,a2,a1,a0]</label>
+          <div class="coeffs">
+            <input id="y1c" type="text" value="0,1,0" />
+            <button class="btn" id="saveY1">적용</button>
           </div>
+        </div>
 
-          <div class="control-group">
-            <label>표시 모드</label>
-            <select id="multiSel">
-              <option value="yt_4">yt 4채널</option>
-            </select>
-          </div>
-
-          <div style="width: 16px"></div>
-
-          <div class="control-group">
-            <label>y1 분모 계수 [a5,a4,a3,a2,a1,a0]</label>
-            <div class="coeffs">
-              <input id="y1c" type="text" value="0,1,0" />
-              <button class="btn" id="saveY1">적용</button>
-            </div>
-          </div>
-
-          <div class="control-group">
+        <!-- y2 계수 (UI 입력값 → 서버 전송) -->
+        <div class="control-group">
           <label>y2 계수 [b5,b4,b3,b2,b1,b0]</label>
           <div class="coeffs">
             <input id="y2c" type="text" value="0,0,0,-0.01,0.9,0" />
             <button class="btn" id="saveY2">적용</button>
           </div>
         </div>
-          <div class="control-group">
-            <label>y3 계수 [c5,c4,c3,c2,c1,c0]</label>
-            <div class="coeffs">
-              <input id="y3c" type="text" value="0,1,0,0,0,0" />
-              <button class="btn" id="saveY3">적용</button>
-            </div>
-          </div>
-          <div class="control-group">
-            <label>yt 계수[E,F]</label>
-            <div class="coeffs">
-              <input id="ytc" type="text" value="1,0" />
-              <button class="btn" id="saveYt">적용</button>
-            </div>
+
+        <!-- y3 계수 (UI 입력값 → 서버 전송) -->
+        <div class="control-group">
+          <label>y3 계수 [c5,c4,c3,c2,c1,c0]</label>
+          <div class="coeffs">
+            <input id="y3c" type="text" value="0,1,0,0,0,0" />
+            <button class="btn" id="saveY3">적용</button>
           </div>
         </div>
 
-        <!-- 그래프 -->
-        <div class="toolbar">
-          <div id="fig2Bar" class="legend-bar"></div>
-          <button id="resetZoom2" class="btn">Zoom 리셋 (더블클릭 가능)</button>
-        </div>
-        <canvas id="fig2"></canvas>
-      </section>
-
-      <!-- [섹션 3: 실시간 파라미터] -->
-      <section class="card">
-        <h2>실시간 파라미터</h2>
-
-        <!-- 슬라이더 & 입력 박스 -->
-        <div class="controls">
-          <div class="param">
-            <label>LPF cutoff (Hz)</label>
-            <input type="range" id="lpf" min="10" max="20000" step="10" />
-            <input type="number" id="lpf_num" min="10" max="20000" step="10" style="width: 90px" />
-          </div>
-
-          <div class="param">
-            <label>Hardware Sampling Rate (kS/s)</label>
-            <input type="range" id="fs_rate" min="10" max="1000" step="10" />
-            <input type="number" id="fs_rate_num" min="10" max="1000" step="10" style="width: 90px" />
-          </div>
-
-          <div class="param">
-            <label>CH Moving Avg (N)</label>
-            <input type="range" id="ma_ch" min="1" max="64" step="1" />
-            <input type="number" id="ma_ch_num" min="1" max="64" step="1" style="width: 80px" />
-          </div>
-
-          <div class="param">
-            <label>Target rate (S/s)</label>
-            <input type="range" id="trate" min="10" max="2000" step="10" />
-            <input type="number" id="trate_num" min="10" max="2000" step="10" style="width: 90px" />
-          </div>
-
-          <div class="param">
-            <label>R Moving Avg (N)</label>
-            <input type="range" id="ma_r" min="1" max="64" step="1" />
-            <input type="number" id="ma_r_num" min="1" max="64" step="1" style="width: 80px" />
-          </div>
-
-          <div class="param">
-            <label>Block Size (samples)</label>
-            <input type="range" id="block_size" min="1024" max="65536" step="1024" />
-            <input type="number" id="block_size_num" min="1024" max="65536" step="1024" style="width: 90px" />
+        <!-- yt 계수 (UI 입력값 → 서버 전송) -->
+        <div class="control-group">
+          <label>yt 계수 [E,F]</label>
+          <div class="coeffs">
+            <input id="ytc" type="text" value="1,0" />
+            <button class="btn" id="saveYt">적용</button>
           </div>
         </div>
+      </div>
+
+      <!-- --------------------- [그래프 영역] --------------------- -->
+      <div class="toolbar">
+        <div id="fig2Bar" class="legend-bar"></div>
+        <button id="resetZoom2" class="btn">Zoom 리셋 (더블클릭 가능)</button>
+      </div>
+      <canvas id="fig2"></canvas>
+    </section>
 
 
-        <!-- 버튼 -->
-        <div class="toolbar">
-          <button id="apply" class="btn">적용</button>
-          <button id="resetParams" class="btn">초기화</button>
+      
+      <!-- ============================================================
+      [섹션 3: 실시간 파라미터 제어]
+      - LPF cutoff, Sampling Rate, Moving Avg, Block Size 제어
+      - 적용/초기화 버튼 → 서버 반영
+      - 현재 파라미터 상태를 paramsView에 표시
+    ============================================================ -->
+    <section class="card">
+      <h2>실시간 파라미터</h2>
+
+      <!-- --------------------- [슬라이더 & 입력 박스] --------------------- -->
+      <div class="controls">
+        <div class="param">
+          <label>LPF cutoff (Hz)</label>
+          <input type="range" id="lpf" min="10" max="20000" step="10" />
+          <input type="number" id="lpf_num" min="10" max="20000" step="10" style="width: 90px" />
         </div>
 
-        <!-- 현재 파라미터 뷰 -->
-        <div class="muted parameter-view" id="paramsView"></div>
-      </section>
-    </main>
+        <div class="param">
+          <label>Hardware Sampling Rate (kS/s)</label>
+          <input type="range" id="fs_rate" min="10" max="1000" step="10" />
+          <input type="number" id="fs_rate_num" min="10" max="1000" step="10" style="width: 90px" />
+        </div>
 
-    <!-- README 모달 -->
+        <div class="param">
+          <label>CH Moving Avg (N)</label>
+          <input type="range" id="ma_ch" min="1" max="64" step="1" />
+          <input type="number" id="ma_ch_num" min="1" max="64" step="1" style="width: 80px" />
+        </div>
+
+        <div class="param">
+          <label>Target rate (S/s)</label>
+          <input type="range" id="trate" min="10" max="2000" step="10" />
+          <input type="number" id="trate_num" min="10" max="2000" step="10" style="width: 90px" />
+        </div>
+
+        <div class="param">
+          <label>R Moving Avg (N)</label>
+          <input type="range" id="ma_r" min="1" max="64" step="1" />
+          <input type="number" id="ma_r_num" min="1" max="64" step="1" style="width: 80px" />
+        </div>
+
+        <div class="param">
+          <label>Block Size (samples)</label>
+          <input type="range" id="block_size" min="1024" max="65536" step="1024" />
+          <input type="number" id="block_size_num" min="1024" max="65536" step="1024" style="width: 90px" />
+        </div>
+      </div>
+
+      <!-- --------------------- [적용/초기화 버튼] --------------------- -->
+      <div class="toolbar">
+        <button id="apply" class="btn">적용</button>
+        <button id="resetParams" class="btn">초기화</button>
+      </div>
+
+      <!-- --------------------- [현재 파라미터 뷰] --------------------- -->
+      <div class="muted parameter-view" id="paramsView"></div>
+    </section>
+  </main>
+
+  <!-- ============================================================
+    [README 모달]
+    - README 버튼 클릭 시 노출되는 모달 창
+    - 신호처리 10단계 파이프라인 설명 + 화면 구성 안내
+  ============================================================ -->
 <div id="readmeModal" class="modal">
   <div class="modal-content">
     <span class="close-btn">&times;</span>
@@ -216,10 +266,12 @@
     <!-- ===================== [푸터 영역] ===================== -->
     <footer>© (주)AIM</footer>
 
+
     <!-- ===================== [스크립트] ===================== -->
     <script type="module" src="/static/app.js"></script>
 
-    <!-- 테마 토글 스크립트 -->
+
+    <!-- 테마(dark/light) 토글 스크립트 -->
     <script>
       const themeToggle = document.getElementById("themeToggleInput");
       const body = document.body;
