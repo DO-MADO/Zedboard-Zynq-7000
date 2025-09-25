@@ -571,7 +571,7 @@ function applyParamsToUI(p) {
        <span class="param-value">${p.movavg_ch}</span></p>
     <p><strong>R Moving Avg(R 이동 평균 윈도우 크기)</strong> :
        <span class="param-value">${p.movavg_r}</span></p>
-    <p><strong>Target Rate(출력 속도, 다운샘플링 후 UI 표시 속도)</strong> :
+    <p><strong>Target Rate(출력 속도, 시간평균 후 UI 표시 속도)</strong> :
        <span class="param-value">${p.target_rate_hz} S/s</span></p>
     <p><strong>Sampling Frequency(하드웨어 ADC 속도)</strong> :
        <span class="param-value">${p.sampling_frequency}</span></p>

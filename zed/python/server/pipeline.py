@@ -2,7 +2,7 @@
 # 📂 pipeline.py
 # 목적: 실시간 신호 처리 파이프라인 (수정 버전)
 # 입력: Synthetic / CProc / IIO 소스
-# 처리: 이동평균 → LPF → 다운샘플링 → 4쌍의 파생 신호 동시 계산
+# 처리: 이동평균 → LPF → 시간평균 → 4쌍의 파생 신호 동시 계산
 # 출력: WebSocket JSON payload (실시간 차트/분석용)
 # ------------------------------------------------------------
 # ✅ 전체 흐름(요약)
@@ -13,7 +13,9 @@
 #      1) CH 이동평균(ma_ch)    : 채널 잡음 저감 (슬라이딩 윈도우)
 #      2) R 계산/이동평균(ma_r) : 비율 기반 파생 변수 계산 + 안정화
 #      3) LPF(butterworth)      : 스무딩 (상태 유지: 스트리밍용)
-#      4) 다운샘플링(target Hz) : UI/네트워크 전송량 제한
+#      4) 시간평균(Time Average): target_rate_hz 맞춤 레이트 변환
+#         - decim 크기만큼 평균해 1개 샘플 생성
+#         - 잔여 샘플(tail) 관리 및 overflow 방지
 #   ─────────────────────────────────────────────────────────
 #   [Derived Signals] (동시 산출)
 #      y1(Ravg / poly_den), y2(poly(x)), y3(poly(x)), yt = E*y3 + F
@@ -28,7 +30,7 @@
 #   - 필터/평균의 "상태(zi, 큐)"는 파이프라인 인스턴스가 보유하여
 #     스트리밍 중에도 연속적인 결과가 되도록 함(블록 경계 무손실).
 #   - scipy.signal의 SOS(sosfilt) 사용: 고차 필터의 수치 안정성 확보.
-#   - 다운샘플링 전 필수 LPF로 알리아싱 억제.
+#   - 시간평균(Time Average) 전 LPF로 알리아싱 억제.
 #   - 파라미터 변경 시, 샘플링/블록 변경은 안전하게 재시작.
 # ============================================================
 
@@ -80,8 +82,8 @@ class PipelineParams:
     lpf_order: int = 4                     # LPF 차수
     movavg_ch: int = 8                     # 채널별 이동평균 윈도우 크기
     movavg_r: int = 4                      # R 신호 이동평균 윈도우 크기
-    target_rate_hz: float = 10.0           # 다운샘플링된 목표 출력 속도 (S/s)
-
+    target_rate_hz: float = 10.0           # 시간평균(Time Average) 적용 후 목표 출력 속도
+    
     # -----------------------------
     # [참고용 옵션 - 현재 로직에서는 미사용]
     # -----------------------------
@@ -145,7 +147,7 @@ class PipelineParams:
             "lpf_order": self.lpf_order,                     # LPF 차수
             "movavg_ch": self.movavg_ch,                     # 채널 이동평균 크기
             "movavg_r": self.movavg_r,                       # R 이동평균 크기
-            "target_rate_hz": self.target_rate_hz,           # 다운샘플링 목표 속도
+            "target_rate_hz": self.target_rate_hz,           # 시간평균 후 목표 출력 속도 (S/s)
             "derived": self.derived,                         # (참고용) 파생 신호 선택
             "out_ch": self.out_ch,                           # 출력 그룹 선택
             "alpha": self.alpha, "beta": self.beta,          # R 계산 계수 α, β
@@ -442,6 +444,9 @@ class Pipeline:
         
         # 샘플링 속도는 PipelineParams에서 직접 관리
         self.fs = self.params.sampling_frequency
+        
+        # ----- 시간평균 꼬리 데이터 초기화 -----
+        self._avg_tail = np.empty((0, 8), dtype=np.float32)
 
         # -------------------------
         # [소스 및 스레드 초기화]
@@ -807,28 +812,35 @@ class Pipeline:
     # ============================================================
     #  [메인 루프 (_run)]
     # ------------------------------------------------------------
-    # - 파이프라인의 핵심 루프: 소스로부터 블록 단위 데이터를 읽고,
-    #   이동평균 → LPF → 다운샘플링 → 파생 신호 → 로깅/브로드캐스트
-    #   순서대로 처리한다.
+    # - 소스에서 블록 단위 데이터를 읽어 순서대로 처리한다:
+    #   ① Raw → ② Noise Filter(LPF + 채널 Smoothing) → ③ 시간평균
+    #      → ④ 로그(R) → ⑤ R 이동평균 → ⑥ y1 → ⑦ y2 → ⑧ y3 → ⑨ yt → ⑩ Output
     #
-    # 동작 단계:
-    #   1) Source(C/IIO/Synthetic) → 블록 데이터 읽기
-    #   2) 채널 수 변화 감지 시 → LPF/이동평균 상태 재초기화
-    #   3) 이동평균 필터 적용 (슬라이딩 윈도우, 블록 간 연속성 유지)
-    #   4) LPF 적용 (상태 기반, 블록 경계 연속성 유지)
-    #   5) 다운샘플링(decimation) → 타겟 출력 속도 맞춤
-    #   6) sanitize_array → NaN/Inf 값 안전 치환
-    #   7) 롤링 버퍼 업데이트 (최근 N초 데이터 유지, Figure1용)
-    #   8) 파생 신호(yt0~yt3) 계산 (_compute_derived_signals 호출)
-    #   9) 처리 통계(stats) 갱신 (fs, block_time, proc_kSps 등)
-    #   10) 주기적으로 CSV 로그(stream_log, perf_log) 기록
-    #   11) 최종 payload 구성 후 WebSocket 브로드캐스트
+    # 단계 요약:
+    #   1) Raw 수집: Source(C/IIO/Synthetic)에서 float32 [N×ch]
+    #   2) Noise Filter:
+    #      - LPF: sosfilt(상태 유지)로 각 채널 실시간 저역통과
+    #      - 채널 Smoothing: moving_average(슬라이딩, 레이트 유지)
+    #   3) 시간평균(Time Average):
+    #      - target_rate_hz에 맞춰 decim 계산
+    #      - N(=decim)개 샘플을 평균해 1개로 낮춤 (단순 Decimation 아님)
+    #      - 남는 샘플은 self._avg_tail에 보관해 다음 루프에서 이어서 평균
+    #      - tail overflow 방지: 길이 > decim*10 이면 최근만 유지
+    #   4)~9) 파생계산(_compute_derived_signals):
+    #      - R = αβγ·log_k(I_sensor/I_standard)+b
+    #      - R 이동평균 → y1(분수 다항식) → y2(다항식) → y3(다항식) → yt = E·y3 + F
+    #   10) Output:
+    #      - Figure1: ③까지 처리된 8ch (항상 8채널로 패딩/슬라이스)
+    #      - Figure2: ④~⑨을 거친 최종 yt 4채널
+    #      - WebSocket으로 JSON payload 브로드캐스트
     #
     # 특징:
-    #   - 실시간 스트리밍 환경에서 상태(stateful filter)를 유지하여
-    #     블록 경계에서도 연속적인 신호 품질 보장
-    #   - 파라미터 변경/채널 수 변동에도 동적으로 적응 가능
+    #   - 필터/평균은 상태(state)를 유지해 블록 경계에서도 연속성 보장
+    #   - "시간평균"은 레이트 변경용 평균이며, 단순 샘플 드롭(Decimation)이 아님
+    #   - 잔여 샘플(tail) 누적과 오버플로 방어로 안정적인 실시간 동작
     # ============================================================
+
+
     def _run(self):
         last_loop_end_time = time.time()
         # loop_count = 0  # (옵션) 디버그 로그 주기 제어용 카운터
@@ -890,9 +902,39 @@ class Pipeline:
             if zf_list:
                 self._lpf_state = np.stack(zf_list, axis=-1)
 
-            # [6] 다운샘플링(Decimation)
+            # [6] 시간평균(Time Average)
             decim = max(1, int(self.fs / max(1.0, self.params.target_rate_hz)))
-            y = mat[::decim, :].astype(np.float32, copy=False)
+
+            # 이전 루프의 잔여 샘플 이어붙이기
+            if self._avg_tail.size > 0:
+                mat = np.vstack([self._avg_tail, mat])
+
+            if decim > 1:
+                n_blocks = mat.shape[0] // decim
+                if n_blocks > 0:
+                    # 정수배 블록만 평균
+                    proc_chunk = mat[:n_blocks * decim]
+                    y = proc_chunk.reshape(n_blocks, decim, -1).mean(axis=1).astype(np.float32, copy=False)
+                    # 남은 꼬리는 다음 루프로 이월
+                    self._avg_tail = mat[n_blocks * decim:]
+                else:
+                    # 데이터 부족 → 전부 꼬리로 이월
+                    self._avg_tail = mat
+                    y = np.empty((0, mat.shape[1]), dtype=np.float32)
+
+                # ✅ 방어 로직: 꼬리 크기 제한 (decim * 10 배 이상 금지)
+                MAX_TAIL = decim * 10
+                if self._avg_tail.shape[0] > MAX_TAIL:
+                    # 오래된 데이터는 버리고 최근 것만 유지
+                    self._avg_tail = self._avg_tail[-MAX_TAIL:]
+                    print(f"[WARN] avg_tail truncated to {MAX_TAIL} samples (overflow prevention)")
+
+            else:
+                # decim == 1 → 원본 유지
+                y = mat.astype(np.float32, copy=False)
+                self._avg_tail = np.empty((0, mat.shape[1]), dtype=np.float32)
+
+
 
             # [7] NaN/Inf 안전화 처리
             y = sanitize_array(y)
@@ -901,17 +943,18 @@ class Pipeline:
             if self._roll_y is None:
                 self._roll_y = np.zeros((self._roll_len, 8), dtype=np.float32)
 
-            n_ch_actual = y.shape[1]
-            if n_ch_actual < 8:
-                y_padded = np.zeros((y.shape[0], 8), dtype=np.float32)
-                y_padded[:, :n_ch_actual] = y
-                y = y_padded
-            elif n_ch_actual > 8:
-                y = y[:, :8]
+            if y.shape[0] > 0:   # <-- ✅ 추가: y가 비어있지 않을 때만 갱신
+                n_ch_actual = y.shape[1]
+                if n_ch_actual < 8:
+                    y_padded = np.zeros((y.shape[0], 8), dtype=np.float32)
+                    y_padded[:, :n_ch_actual] = y
+                    y = y_padded
+                elif n_ch_actual > 8:
+                    y = y[:, :8]
 
-            k = min(y.shape[0], self._roll_len)
-            self._roll_y = np.roll(self._roll_y, -k, axis=0)
-            self._roll_y[-k:, :] = y[-k:, :]
+                k = min(y.shape[0], self._roll_len)
+                self._roll_y = np.roll(self._roll_y, -k, axis=0)
+                self._roll_y[-k:, :] = y[-k:, :]
 
             # [9] 파생 신호 계산 (yt0~yt3)
             derived_signals = self._compute_derived_signals(y)
