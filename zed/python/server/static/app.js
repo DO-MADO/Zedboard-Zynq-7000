@@ -396,14 +396,17 @@ function renderFig2Toggles(chart) {
 //      * multi.series: 2차원 배열 [ [yt0], [yt1], ... ]
 //      * multi.names : 각 시리즈 이름 배열 (없으면 yt0~yt3 기본값)
 //      처리 흐름:
-//        1) fig2Vis에 각 이름별 hidden 상태 기본값(false) 등록
-//        2) dataset 개수가 동일하면 데이터만 갱신
-//        3) 다르면 dataset 새로 생성 후 renderFig2Toggles 호출
-//        4) X축 레이블을 시리즈 길이만큼 0~N-1로 생성
-//        5) 차트 업데이트 & 토글 버튼 갱신
+//        1) ✅ 깜빡임 방지: 수신된 데이터가 비어있으면(series[0].length === 0)
+//           모든 처리를 건너뛰어 기존 차트 화면을 유지한다.
+//        2) fig2Vis에 각 이름별 hidden 상태 기본값(false) 등록
+//        3) dataset 개수가 동일하면 데이터만 갱신
+//        4) 다르면 dataset 새로 생성 후 renderFig2Toggles 호출
+//        5) X축 레이블을 시리즈 길이만큼 0~N-1로 생성
+//        6) 차트 업데이트 & 토글 버튼 갱신
 //
 //  - setFig2Single(name, series):
 //      단일 파생 신호(yt만)를 그릴 때 사용
+//      (참고: 현재 백엔드에서는 setFig2Multi만 사용 중)
 //      * name: 데이터셋 라벨 (없으면 'yt')
 //      * series: 1차원 배열 데이터
 //      처리 흐름:
@@ -419,12 +422,15 @@ function renderFig2Toggles(chart) {
  * @param {Array<Array<number>>} multi.series - 시리즈 데이터 배열
  */
 function setFig2Multi(multi) {
-  if (!multi || !Array.isArray(multi.series)) return;
+  // 데이터가 비어있으면 아무 작업도 하지 않고 무시 (깜빡임 방지)
+  if (!multi || !Array.isArray(multi.series) || multi.series[0]?.length === 0) return;
 
   // 이름 목록 (없으면 기본값 yt0~yt3)
   const names = (multi.names && multi.names.length ? multi.names : ['yt0','yt1','yt2','yt3'])
                   .slice(0, multi.series.length);
+
   const ser = multi.series;
+  
 
   // fig2Vis에 기본 hidden 상태 등록
   names.forEach((nm) => {
