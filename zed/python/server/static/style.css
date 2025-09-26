@@ -1,38 +1,15 @@
-/* ============================================================
- 🎨 색상 변수 팔레트 정리 (Design System)
- 
- Dark Mode (기본) vs Gray Mode (밝은 테마)
- ------------------------------------------------------------
- 변수명          | Dark Mode 값    | Gray Mode 값
- ------------------------------------------------------------
- --bg           | #0b1120         | #fefce8
- --panel        | #111827         | #f1f5f9
- --muted        | #6b7280         | #4b5563
- --text         | #e5e7eb         | #111827
- --accent       | #10b981         | (공통, 변경 없음)
- --border       | #1f2937         | #d1d5db
- --label-color  | #94a3b8         | #4b5563
- ============================================================ */
- 
-
 /* ===================== [공통 변수 & 색상 테마] ===================== */
 :root {
-  --bg: #0b1120;
-  --panel: #111827;
-  --muted: #6b7280;
-  --text: #e5e7eb;
-  --accent: #10b981;
-  --border: #1f2937;
-  --label-color: #94a3b8;
+  --bg: #2a2b32;         /* 전체 배경 */
+  --panel: #1e1f23;      /* 카드/패널 */
+  --muted: #9ca3af;      /* 보조 텍스트 */
+  --text: #f7f7f8;       /* 본문 텍스트 */
+  --accent: #3b82f6;     /* 포인트 컬러 (그대로 유지 가능) */
+  --border: #3a3b45;     /* 경계선 */
+  --label-color: #a1a1aa;/* 라벨 */
+  --panel-hover: #3a3b45;
 }
-body.gray-mode {
-  --bg: #fefce8;
-  --panel: #f1f5f9;
-  --muted: #4b5563;
-  --text: #111827;
-  --border: #d1d5db;
-  --label-color: #4b5563;
-}
+
 
 /* ===================== [리셋 & 공통 스타일] ===================== */
 * {
@@ -53,16 +30,13 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
   position: sticky;
-  top: 0;
-  background: rgba(11, 15, 22, 0.8);
+  background: #2a2b32;
   backdrop-filter: blur(6px);
+  margin-left: 14px;
+  margin-bottom: 0px;
 }
-body.gray-mode header {
-  background: #fefce8;
-}
+
 .header-controls {
   display: flex;
   align-items: center;
@@ -76,7 +50,6 @@ header .brand {
 /* ===================== [그리드 레이아웃 & 카드] ===================== */
 .grid {
   display: grid;
-  gap: 12px;
   padding: 12px;
 }
 .card {
@@ -86,17 +59,17 @@ header .brand {
   padding: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   transition: background-color 0.3s, border-color 0.3s;
+  border-top: none;
+
 }
 .card h2 {
   margin: 2px 0 12px 0;
   font-size: 18px;
   padding: 5px;
-  color: #cbd5e1;
+  color: #fff;
   font-weight: 600;
   letter-spacing: 0.3px;
-}
-body.gray-mode .card h2 {
-  color: #334155;
+  border-top: none;
 }
 
 /* ===================== [컨트롤 (슬라이더/입력)] ===================== */
@@ -139,18 +112,12 @@ body.gray-mode .card h2 {
 select,
 input[type="number"],
 input[type="text"] {
-  background: #0f172a;
+  background: var(--panel);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 6px 8px;
   transition: background-color 0.3s, color 0.3s, border-color 0.3s;
-}
-body.gray-mode select,
-body.gray-mode input[type="number"],
-body.gray-mode input[type="text"] {
-  background: #f1f5f9;
-  color: var(--text);
 }
 
 /* ===================== [기본 텍스트 & 뮤트 스타일] ===================== */
@@ -160,9 +127,10 @@ body.gray-mode input[type="text"] {
 }
 
 /* ===================== [캔버스 (차트 영역)] ===================== */
-canvas {
-  width: 100% !important;
-  height: 360px !important;
+.chart-container {
+  position: relative;
+  height: 360px; /* 원하는 차트 높이 */
+  width: 100%;
 }
 
 /* ===================== [푸터] ===================== */
@@ -184,7 +152,7 @@ footer {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #0f172a;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 4px 8px;
@@ -193,10 +161,7 @@ footer {
   cursor: pointer;
   user-select: none;
 }
-body.gray-mode .ch-toggle {
-  background: #f1f5f9;
-  color: var(--text);
-}
+
 .ch-toggle .swatch {
   width: 12px;
   height: 12px;
@@ -219,7 +184,7 @@ body.gray-mode .ch-toggle {
   flex-wrap: wrap;
 }
 .btn {
-  background: #0f172a;
+  background: var(--panel);
   color: #e5e7eb;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -228,96 +193,13 @@ body.gray-mode .ch-toggle {
   font-size: 12px;
   transition: background-color 0.2s, color 0.2s;
 }
-body.gray-mode .btn {
-  background: #f1f5f9;
-  color: var(--text);
-}
+
 .btn:hover {
-  background: var(--text);
-  color: var(--panel);
-}
-body.gray-mode .btn:hover {
-  background: #cbd5e1;
-  color: var(--text);
-}
-
-.test-btn {
-  margin-left: 10px;
-  padding: 6px 12px;
-  border: 1px solid var(--border);   /* 얇은 1px 테두리 */
-  border-radius: 12px;
-  background-color: transparent;     /* 배경 투명 */
-  color: var(--text);                /* 글자색은 테마 색상 */
-  font-size: 12px;
-  cursor: pointer;
-  text-decoration: none; /* 밑줄 제거 */
-  font-weight: normal;
-  transition: background 0.2s, color 0.2s, border-color 0.2s;
-
-}
-
-/* Dark Mode hover → 반전 */
-body:not(.gray-mode) .test-btn:hover {
-  background-color: var(--text);
-  color: var(--bg);
-  border-color: var(--text);
-}
-
-/* Gray Mode hover → 은은한 회색 강조 */
-body.gray-mode .test-btn:hover {
-  background-color: #cbd5e1;   /* Gray-300 느낌 */
-  color: var(--text);          /* 글씨는 그대로 테마 색 */
-  border-color: #cbd5e1;
+  background: var(--panel-hover, #2a2a2a);
+  color: var(--text, #fff);
 }
 
 
-
-/* ===================== [테마 스위치 토글] ===================== */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 50px;
-  height: 28px;
-}
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #334155;
-  border-radius: 34px;
-  transition: 0.4s;
-}
-.slider:before {
-  position: absolute;
-  content: "🌙";
-  height: 22px;
-  width: 22px;
-  left: 3px;
-  bottom: 3px;
-  background-color: var(--panel);
-  border-radius: 50%;
-  transition: 0.4s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-}
-input:checked + .slider {
-  background-color: #cbd5e1;
-}
-input:checked + .slider:before {
-  transform: translateX(22px);
-  content: "☀️";
-  background-color: white;
-}
 
 /* ===================== [파라미터 컨트롤 & 계수 입력] ===================== */
 #apply,
@@ -384,9 +266,7 @@ input:checked + .slider:before {
   font-weight: 600;
   letter-spacing: 0.3px;
 }
-body.gray-mode .parameter-view strong {
-  color: #1e293b;
-}
+
 .parameter-view .param-value {
   color: var(--muted);
   font-weight: 600;
@@ -405,92 +285,119 @@ body.gray-mode .parameter-view strong {
 }
 
 
-/* ===================== [README 버튼 영역] ===================== */
-.readme-btn {
-  margin-left: 10px;
-  padding: 6px 12px;
-  border: 1px solid var(--border);   /* 얇은 1px 테두리 */
-  border-radius: 12px;
-  background-color: transparent;     /* 배경 투명 */
-  color: var(--text);                /* 글자색은 테마 색상 */
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s, border-color 0.2s;
+
+/* ===================== [탭전환 UI 변환을 위한 스타일] ===================== */
+
+.brand-logo {
+  height: auto;   /* 원하는 높이 */
+  width: 100px;
+  display: block; /* 세로 정렬 이슈 방지 */
 }
 
-/* Dark Mode hover → 반전 */
-body:not(.gray-mode) .readme-btn:hover {
-  background-color: var(--text);
-  color: var(--bg);
-  border-color: var(--text);
+/* 탭 버튼 영역 */
+.tabs {
+  display: flex;
+  margin: 0;              /* 위쪽 여백 제거 */
+  padding: 0;             /* 기본 padding 제거 */
+  margin-left: 70px;
+  border-bottom: 1px solid var(--border);
 }
 
-/* Gray Mode hover → 은은한 회색 강조 */
-body.gray-mode .readme-btn:hover {
-  background-color: #cbd5e1;   /* Gray-300 느낌 */
-  color: var(--text);          /* 글씨는 그대로 테마 색 */
-  border-color: #cbd5e1;
+/* 첫 번째 탭 버튼의 왼쪽 위 모서리만 둥글게 */
+.tab-btn:first-child {
+  border-top-left-radius: 16px;
 }
 
 
-
-
-
-/* ===================== [README 모달 화면] ===================== */
-.modal {
-  display: none; /* 기본은 숨김 */
-  position: fixed;
-  z-index: 9999;
-  left: 0; top: 0;
-  width: 100%; height: 100%;
-  background-color: rgba(0,0,0,0.5);
+/* 마지막 탭 버튼의 오른쪽 위 모서리만 둥글게 */
+.tab-btn:last-child {
+  border-top-right-radius: 16px;
 }
 
-.modal-content {
+
+
+/* 기본 탭 버튼 (브라우저 탭 느낌) */
+.tab-btn {
   background: var(--panel);
-  margin: 10% auto;
-  padding: 20px;
-  border: 1px solid var(--border);
-  max-width: 82vh;
-  max-height: 70vh;   /* 화면 높이의 80%까지만 */
-  overflow-y: auto;   /* 내용이 넘치면 내부 스크롤 */
-  border-radius: 12px;
-  color: var(--text);
-}
-
-.close-btn {
-  float: right;
-  font-size: 24px;
+  border: none;
+  border-bottom: 2px solid transparent; /* 선택 안된 탭은 보더 안 보이게 */
+  padding: 10px 16px;
+  color: var(--text-muted, #aaa);
   cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: 140px;
 }
 
-.modal-content ul li {
-  margin-bottom: 14px;
+/* hover 시 강조 */
+.tab-btn:hover {
+  background: var(--panel-hover);
+  color: var(--text, #fff);
 }
 
-.modal-content ol li {
-    margin-bottom: 12px;
-    padding: 12px;
-}
-.modal-content p {
-    margin-top: 30px;
-}
-
-/* 모달 내부 스크롤바 스타일 */
-.modal-content::-webkit-scrollbar {
-  width: 10px;   /* 스크롤바 폭 */
-}
-
-.modal-content::-webkit-scrollbar-track {
-  background: var(--panel);   /* 모달 배경색과 동일 */
-  border-radius: 8px;
+/* 활성화된 탭 */
+.tab-btn.active {
+  background: var(--panel);
+  border-bottom: 2px solid var(--accent, #3b82f6);
+  color: var(--text, #fff);
+  font-weight: 600;
+  font-size: 1.01em;
+  border: 1px solid var(--border); 
+  border-bottom: 1px solid var(--panel); 
+  margin-bottom: -1px;
 }
 
-.modal-content::-webkit-scrollbar-thumb {
-  background: var(--border);  /* 테마 border 색상 */
-  border-radius: 8px;
+/* 탭 콘텐츠 */
+.tab-content {
+  display: none;
+  padding: 16px 0;  /* 탭 아래 여백 */
 }
 
-.modal-content::-webkit-scrollbar-thumb:hover {
-  background: #4b5563; /* hover 시 조금 더 진한 색 (예: slate-600) */
+.tab-content.active {
+  display: block;
+  padding: 16px;
+}
+
+
+.yaxis-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+  margin-right: 14px;
+}
+.yaxis-controls label {
+  font-size: 12px;
+  color: var(--label-color);
+}
+.yaxis-input {
+  width: 80px;
+}
+
+.stats-display {
+  display: flex;
+  gap: 12px; /* 각 항목 사이의 간격 */
+  color: #aeb1b8; /* 라벨 기본 텍스트 색상 */
+  font-size: 13px;
+  align-items: center;
+  white-space: nowrap; /* 줄바꿈 방지 */
+  margin-right: 25px;
+}
+.stats-display .stat-item {
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+}
+.stats-display .stat-label {
+  font-size: 11px;
+  color: #777a81;
+}
+.stats-display .stat-value {
+  font-weight: bold;
+  color: #e0e2e8; /* 값(value) 텍스트 색상 */
+}
+
+.stats-display .separator {
+  color: #5a5b64; /* 구분자(|) 색상 */
+  font-weight: normal;
 }

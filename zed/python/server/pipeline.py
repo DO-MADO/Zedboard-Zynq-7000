@@ -80,8 +80,14 @@ class PipelineParams:
     # -----------------------------
     lpf_cutoff_hz: float = 2_500.0         # 저역통과필터(LPF) 차단 주파수 (Hz)
     lpf_order: int = 4                     # LPF 차수
-    movavg_ch: int = 8                     # 채널별 이동평균 윈도우 크기
-    movavg_r: int = 4                      # R 신호 이동평균 윈도우 크기
+    movavg_ch: int = 1000  # ‼️ 기본 샘플 수도 0.001초에 맞춰 변경 (1000개)
+    movavg_r: int = 5      # ‼️ 기본 샘플 수도 0.5초에 맞춰 변경 (5개 @ 10Hz)
+    
+    # ‼️ 사용자가 체감하기 좋은, 더 실용적인 기본값으로 변경
+    movavg_ch_sec: float = 0.001  # (기존: 0.000008)
+    movavg_r_sec: float = 0.5    # (기존: 0.4)
+    
+    
     target_rate_hz: float = 10.0           # 시간평균(Time Average) 적용 후 목표 출력 속도
     
     # -----------------------------
@@ -147,6 +153,8 @@ class PipelineParams:
             "lpf_order": self.lpf_order,                     # LPF 차수
             "movavg_ch": self.movavg_ch,                     # 채널 이동평균 크기
             "movavg_r": self.movavg_r,                       # R 이동평균 크기
+            "movavg_ch_sec": self.movavg_ch_sec,             # 채널 이동평균 (초 단위)
+            "movavg_r_sec": self.movavg_r_sec,               # R 이동평균 (초 단위)
             "target_rate_hz": self.target_rate_hz,           # 시간평균 후 목표 출력 속도 (S/s)
             "derived": self.derived,                         # (참고용) 파생 신호 선택
             "out_ch": self.out_ch,                           # 출력 그룹 선택
@@ -478,14 +486,15 @@ class Pipeline:
         self._last_perf_log_time = time.time() 
         self._last_stream_log_time = time.time()
 
-        # -------------------------
+         # -------------------------
         # [stream_log.csv 헤더 작성]
-        # - 시간 + 8개 채널 + yt0~3 + LPF/Ravg + 출력속도
         # -------------------------
+        # ‼️ 헤더를 요청하신 내용(ch0-7, Ravg0-3, yt0-3)으로 변경합니다.
         stream_headers = [
-            "시간", "ch0", "ch1", "ch2", "ch3", "ch4", "ch5", "ch6", "ch7",
-            "yt0", "yt1", "yt2", "yt3",
-            "LPF설정", "R평균", "출력샘플속도(S/s)"
+            "시간", 
+            "ch0", "ch1", "ch2", "ch3", "ch4", "ch5", "ch6", "ch7",
+            "Ravg0", "Ravg1", "Ravg2", "Ravg3",
+            "yt0", "yt1", "yt2", "yt3"
         ]
         with open(self._stream_log_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -571,15 +580,7 @@ class Pipeline:
         else:
             self._movavg_state = None
 
-        # -------------------------
-        # [롤링 윈도우 초기화]
-        # - 최근 5초 동안의 출력 버퍼 준비
-        # - 차트 업데이트/시각화에 사용
-        # -------------------------
-        self._roll_sec = 5.0
-        self._roll_len = int(max(1, self.params.target_rate_hz * self._roll_sec))
-        self._roll_x = np.arange(self._roll_len, dtype=np.int32)
-        self._roll_y = None
+
 
 
 
@@ -717,30 +718,15 @@ class Pipeline:
                 self._movavg_state = np.zeros((movavg_N - 1, n_ch), dtype=np.float32)
             else:
                 self._movavg_state = None
-
-        # 3) 롤링 윈도우 리셋
-        if any(k in changed for k in ("target_rate_hz",)):
-            self._roll_len = int(max(1, self.params.target_rate_hz * self._roll_sec))
-            self._roll_x = np.arange(self._roll_len, dtype=np.int32)
-            if self._roll_y is not None:
-                n_ch = self._roll_y.shape[1]
-                self._roll_y = np.zeros((self._roll_len, n_ch), dtype=np.float32)
+   
 
         return changed
 
     def reset_params_to_defaults(self):
         """PipelineParams를 기본값으로 초기화"""
         self.params = PipelineParams()
-
-        # LPF 초기화
+        # LPF만 초기화하고 불필요해진 롤링 윈도우 관련 코드는 삭제
         self._sos = design_lpf(self.fs, self.params.lpf_cutoff_hz, self.params.lpf_order)
-
-        # 롤링 윈도우 초기화
-        self._roll_len = int(max(1, self.params.target_rate_hz * self._roll_sec))
-        self._roll_x = np.arange(self._roll_len, dtype=np.int32)
-        if self._roll_y is not None:
-            n_ch = self._roll_y.shape[1]
-            self._roll_y = np.zeros((self._roll_len, n_ch), dtype=np.float32)
 
 
 
@@ -789,23 +775,56 @@ class Pipeline:
         # 센서/표준 채널 인덱스 정의
         sensor_indices = [0, 2, 4, 6]    # 분자(top): 센서
         standard_indices = [1, 3, 5, 7]  # 분모(bot): 표준
-
+        
+        yt_series = []
+        ravg_series = []
         output_series = []
         for i in range(4):
-            # i번째 쌍 (센서 vs 표준)
             sensor_signal = y_block[:, sensor_indices[i]]
             standard_signal = y_block[:, standard_indices[i]]
 
-            # yt_i 계산 (R → y1 → y2 → y3 → yt)
-            yt_i = _compute_yt_from_top_bot(self.params,
-                                            top=sensor_signal,
-                                            bot=standard_signal)
-            output_series.append(yt_i.tolist())
+            # 헬퍼 함수를 직접 호출하는 대신 Ravg를 중간에 추출합니다.
+            eps = 1e-12
+            top, bot = sensor_signal, standard_signal
+            if self.params.r_abs:
+                top, bot = np.abs(top), np.abs(bot)
+            top, bot = np.maximum(top, eps), np.maximum(bot, eps)
+            
+            ratio = np.maximum(top / bot, eps)
+            log_base = self.params.k if self.params.k > 1 else 10.0
+            log_ratio = np.log(ratio) / np.log(log_base)
+            
+            scale = self.params.alpha * self.params.beta * self.params.gamma
+            R = scale * log_ratio + self.params.b
+            Ravg = moving_average(R, max(1, int(self.params.movavg_r)))
+            
+            # ✅ 계산된 Ravg를 리스트에 추가
+            ravg_series.append(Ravg.tolist())
 
+            # 나머지 y1, y2, y3, yt 계산
+            safe_ravg = np.clip(Ravg, -1e9, 1e9)
+            n = np.polyval(np.array(self.params.y1_num, dtype=float), safe_ravg)
+            d = np.polyval(np.array(self.params.y1_den, dtype=float), safe_ravg)
+            y1 = n / np.where(np.abs(d) < eps, eps, d)
+            safe_y1 = np.clip(y1, -1e9, 1e9)
+            y2 = np.polyval(np.array(self.params.y2_coeffs, dtype=float), safe_y1)
+            safe_y2 = np.clip(y2, -1e9, 1e9)
+            y3 = np.polyval(np.array(self.params.y3_coeffs, dtype=float), safe_y2)
+            yt = self.params.E * y3 + self.params.F
+            yt_series.append(sanitize_array(yt).astype(np.float32, copy=False).tolist())
+
+        # yt와 Ravg 데이터를 모두 포함하여 반환
         return {
-            "kind": "yt_4_pairs",
-            "names": ["yt0", "yt1", "yt2", "yt3"],
-            "series": output_series
+            "yt": {
+                "kind": "yt_4_pairs",
+                "names": ["yt0", "yt1", "yt2", "yt3"],
+                "series": yt_series
+            },
+            "ravg": {
+                "kind": "ravg_4_pairs",
+                "names": ["Ravg0", "Ravg1", "Ravg2", "Ravg3"],
+                "series": ravg_series
+            }
         }
 
 
@@ -853,6 +872,11 @@ class Pipeline:
             except EOFError:
                 print("[INFO] CProc source has ended. Shutting down pipeline thread.")
                 break
+            
+            t_end = time.time()
+            elapsed_ms = (t_end - t_start) * 1000
+            # 블록 실제로 읽어오는 터미널 로그
+            #print(f"[DEBUG] Block read elapsed = {elapsed_ms:.3f} ms")
 
             # --- (옵션) DEBUG LOGGING ---
             # C단에서 받은 데이터의 min/max 체크용 (터미널 과부하 방지)
@@ -860,8 +884,6 @@ class Pipeline:
             #     print(f"[DEBUG] Raw Block Shape: {mat.shape}")
             #     print(f"  ch0 min/max: {mat[:,0].min():.4f} / {mat[:,0].max():.4f}")
             # loop_count += 1
-
-            t_read_done = time.time()
 
             # [2] 데이터 형태 보정 (1D → 2D, writeable 보장)
             if mat.ndim == 1:
@@ -934,71 +956,72 @@ class Pipeline:
                 y = mat.astype(np.float32, copy=False)
                 self._avg_tail = np.empty((0, mat.shape[1]), dtype=np.float32)
 
-
-
             # [7] NaN/Inf 안전화 처리
             y = sanitize_array(y)
 
-            # [8] 롤링 윈도우 버퍼 업데이트 (항상 8ch 유지)
-            if self._roll_y is None:
-                self._roll_y = np.zeros((self._roll_len, 8), dtype=np.float32)
-
-            if y.shape[0] > 0:   # <-- ✅ 추가: y가 비어있지 않을 때만 갱신
-                n_ch_actual = y.shape[1]
-                if n_ch_actual < 8:
-                    y_padded = np.zeros((y.shape[0], 8), dtype=np.float32)
-                    y_padded[:, :n_ch_actual] = y
-                    y = y_padded
-                elif n_ch_actual > 8:
-                    y = y[:, :8]
-
-                k = min(y.shape[0], self._roll_len)
-                self._roll_y = np.roll(self._roll_y, -k, axis=0)
-                self._roll_y[-k:, :] = y[-k:, :]
 
             # [9] 파생 신호 계산 (yt0~yt3)
-            derived_signals = self._compute_derived_signals(y)
+            computed_signals = self._compute_derived_signals(y)
 
-            loop_duration = time.time() - last_loop_end_time
-            last_loop_end_time = time.time()
+
+            # ‼️ ---- 성능 측정 로직 시작 ---- ‼️
+            loop_end_time = time.time()
+            loop_duration = loop_end_time - last_loop_end_time
+            last_loop_end_time = loop_end_time
 
             # [10] 처리 통계(stats) 계산
-            fs_hz = float(self.fs) if hasattr(self, "fs") else 0.0
-            blk_n = int(self.block) if hasattr(self, "block") else 0
-            block_time_ms = (blk_n / fs_hz * 1000.0) if (fs_hz > 0 and blk_n > 0) else 0.0
-            blocks_per_sec = (fs_hz / blk_n) if (fs_hz > 0 and blk_n > 0) else 0.0
+            fs_hz = float(self.fs)
+            blk_n = int(self.block)
+            n_ch = y.shape[1] # ‼️ 현재 처리중인 채널 수
+            
+            # 이론적인 블록당 시간 (ms)
+            theoretical_block_time_ms = (blk_n / fs_hz * 1000.0) if fs_hz > 0 else 0.0
+            
+            # 실제 측정값
+            actual_block_time_ms = loop_duration * 1000.0
+            actual_blocks_per_sec = 1.0 / loop_duration if loop_duration > 0 else 0.0
+            # ‼️ 총 처리량을 채널 수(n_ch)로 나누어 채널당 처리량을 계산
+            actual_proc_kSps = (blk_n / loop_duration / n_ch / 1000.0) if loop_duration > 0 and n_ch > 0 else 0.0
 
             stats = {
-                "sampling_frequency": float(self.fs),
-                "block_samples": int(self.block),
-                "block_time_ms": block_time_ms,
-                "blocks_per_sec": blocks_per_sec,
+                "sampling_frequency": fs_hz,
+                "block_samples": blk_n,
+                "theoretical_block_time_ms": theoretical_block_time_ms,
+                
+                # ‼️ 실제 측정된 성능 지표 추가
+                "actual_block_time_ms": actual_block_time_ms,
+                "actual_blocks_per_sec": actual_blocks_per_sec,
+                "actual_proc_kSps": actual_proc_kSps,
                 "n_ch": n_ch,
             }
-
-            # 실제 처리량(kS/s/ch)
-            if loop_duration > 0 and stats["n_ch"] > 0:
-                stats["proc_kSps"] = (self.block / loop_duration) / 1000.0
-            else:
-                stats["proc_kSps"] = 0.0
+            # ‼️ ---- 성능 측정 로직 끝 ---- ‼️
 
             # [11] 주기적 CSV 로깅 (stream_log.csv, perf_log.csv)
             current_time = time.time()
 
-            # --- stream_log.csv (3초 주기) ---
+             # --- stream_log.csv (3초 주기) ---
             if y.shape[0] > 0 and current_time - self._last_stream_log_time >= 3:
                 self._last_stream_log_time = current_time
                 ts_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                
+                # 1. 8개 채널의 마지막 값 추출
                 last_ch_values = y[-1, :8].tolist()
-                last_yt_values = [s[-1] for s in derived_signals["series"]] \
-                                 if derived_signals and all(s for s in derived_signals["series"]) \
+
+                # ‼️ 2. 4개 Ravg 신호의 마지막 값 추출
+                ravg_data = computed_signals.get("ravg")
+                last_ravg_values = [s[-1] for s in ravg_data["series"]] \
+                                 if ravg_data and ravg_data.get("series") and all(s for s in ravg_data["series"]) \
                                  else [0.0, 0.0, 0.0, 0.0]
-                current_params = [
-                    self.params.lpf_cutoff_hz,
-                    self.params.movavg_r,
-                    self.params.target_rate_hz,
-                ]
-                log_row = [ts_str] + last_ch_values + last_yt_values + current_params
+
+                # 3. 4개 yt 신호의 마지막 값 추출
+                yt_data = computed_signals.get("yt")
+                last_yt_values = [s[-1] for s in yt_data["series"]] \
+                                if yt_data and yt_data.get("series") and all(s for s in yt_data["series"]) \
+                                else [0.0, 0.0, 0.0, 0.0]
+                
+                # ‼️ 4. 최종 로그 행을 (시간 + ch + Ravg + yt) 순서로 조합
+                log_row = [ts_str] + last_ch_values + last_ravg_values + last_yt_values
+                
                 with open(self._stream_log_path, 'a', newline='', encoding='utf-8') as f:
                     csv.writer(f).writerow(log_row)
 
@@ -1008,11 +1031,12 @@ class Pipeline:
                 ts_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 log_row = [
                     ts_str,
-                    stats.get("sampling_frequency", 0),
+                    stats.get("sampling_frequency", 0)  / 1000.0,  # kS/s로 변환,
                     stats.get("block_samples", 0),
-                    stats.get("block_time_ms", 0.0),
-                    stats.get("blocks_per_sec", 0.0),
-                    stats.get("proc_kSps", 0.0),
+                    # ‼️ UI와 동일한 '실제 측정값'을 기록하도록 변경
+                    stats.get("actual_block_time_ms", 0.0),
+                    stats.get("actual_blocks_per_sec", 0.0),
+                    stats.get("actual_proc_kSps", 0.0),
                 ]
                 with open(self._perf_log_path, 'a', newline='', encoding='utf-8') as f:
                     csv.writer(f).writerow(log_row)
@@ -1022,16 +1046,15 @@ class Pipeline:
                 "type": "frame",
                 "ts": time.time(),
                 "n_ch": int(y.shape[1]),
-                "window": {
-                    "x": self._roll_x.tolist(),
-                    "y": self._roll_y.tolist(),
-                },
+                "y_block": y.tolist(), # ✅ 처리된 새 데이터 블록 추가
                 "block": {
                     "n": int(y.shape[0]),
                     "sample_stride": decim,
                 },
-                "derived": derived_signals,
                 "stats": stats,
                 "params": self.params.model_dump(),
+                "derived": computed_signals.get("yt"),
+                "ravg_signals": computed_signals.get("ravg"),
             }
             self._broadcast(payload)
+

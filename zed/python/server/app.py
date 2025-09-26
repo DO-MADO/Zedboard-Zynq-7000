@@ -61,6 +61,8 @@ class ParamsIn(BaseModel):
     lpf_order: Optional[int] = None
     movavg_ch: Optional[int] = None
     movavg_r: Optional[int] = None
+    movavg_ch_sec: Optional[float] = None
+    movavg_r_sec:  Optional[float] = None
     target_rate_hz: Optional[float] = None
 
     # (단일/멀티 출력 — 실제 운영에서는 무시하지만 받기만 함)
@@ -178,6 +180,55 @@ async def set_params(p: ParamsIn):
         coeffs = body.pop("coeffs_yt")
         if isinstance(coeffs, (list, tuple)) and len(coeffs) >= 2:
             body["E"], body["F"] = float(coeffs[0]), float(coeffs[1])
+            
+            
+    # 3.5) NEW: 초(sec) 단위 이동평균 → 샘플 개수로 환산 (target_rate_hz 기반)
+    #      - UI는 movavg_ch_sec / movavg_r_sec 로 보냄
+    #      - 서버는 내부적으로 movavg_ch / movavg_r(정수 샘플 수)로 변환
+    #      - 이번 요청(body)에 target_rate_hz가 포함되면 그 값을 우선 사용
+    tr = body.get("target_rate_hz", None)
+    if tr is None:
+        # 현재 파이프라인의 target_rate_hz 사용 (없으면 기본 10 S/s)
+        tr = getattr(app.state.pipeline.params, "target_rate_hz", 10.0)
+    try:
+        tr = float(tr)
+        if tr <= 0:
+            tr = 10.0
+    except Exception:
+        tr = 10.0
+
+    # ‼️ CH 이동평균 계산을 위해 sampling_frequency 값을 가져옵니다.
+    fs = body.get("sampling_frequency", None)
+    if fs is None:
+        fs = getattr(app.state.pipeline.params, "sampling_frequency", 1_000_000.0)
+    try:
+        fs = float(fs)
+        if fs <= 0:
+            fs = 1_000_000.0
+    except Exception:
+        fs = 1_000_000.0
+
+
+    # movavg_ch_sec -> movavg_ch (정수, 최소 1)
+    if "movavg_ch_sec" in body:
+        try:
+            # ‼️ body.pop() 대신 body[...]를 사용하여 키를 유지합니다.
+            sec = max(0.0, float(body["movavg_ch_sec"]))
+        except Exception:
+            sec = 0.0
+        # ‼️ tr(target_rate) 대신 fs(sampling_frequency)를 곱하여 올바른 샘플 수를 계산합니다.
+        N = int(max(1, round(sec * fs)))
+        body["movavg_ch"] = N
+
+    # movavg_r_sec -> movavg_r (정수, 최소 1)
+    if "movavg_r_sec" in body:
+        try:
+            # ‼️ body.pop() 대신 body[...]를 사용하여 키를 유지합니다.
+            sec = max(0.0, float(body["movavg_r_sec"]))
+        except Exception:
+            sec = 0.0
+        N = int(max(1, round(sec * tr)))
+        body["movavg_r"] = N        
 
 
     # 4) pipeline.update_params 호출 → "변경된 키 목록" 반환

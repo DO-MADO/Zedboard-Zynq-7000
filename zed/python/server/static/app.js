@@ -16,6 +16,8 @@ import zoomPlugin from 'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/+
 // Chart.js에 zoom 플러그인 등록 (등록하지 않으면 확대/축소 기능 작동 X)
 Chart.register(zoomPlugin);
 
+// ✅ 차트에 표시할 최대 데이터 포인트 수 (메모리 관리)
+const MAX_DATA_POINTS = 5000; 
 
 
 // ============================================================
@@ -35,10 +37,10 @@ const fig2Ctx = document.getElementById('fig2');   // 파생 신호(yt 등) 표�
 const paramsView     = document.getElementById('paramsView'); // 파라미터 요약 텍스트 영역
 const lpf            = document.getElementById('lpf');        // LPF 슬라이더
 const lpfNum         = document.getElementById('lpf_num');    // LPF 수치 입력창
-const maCh           = document.getElementById('ma_ch');      // CH 이동평균 슬라이더
-const maChNum        = document.getElementById('ma_ch_num');  // CH 이동평균 수치 입력창
-const maR            = document.getElementById('ma_r');       // R 이동평균 슬라이더
-const maRNum         = document.getElementById('ma_r_num');   // R 이동평균 수치 입력창
+const maCh           = document.getElementById('ma_ch_sec');      // CH 이동평균 슬라이더
+const maChNum        = document.getElementById('ma_ch_sec_num');  // CH 이동평균 수치 입력창
+const maR            = document.getElementById('ma_r_sec');       // R 이동평균 슬라이더
+const maRNum         = document.getElementById('ma_r_sec_num');   // R 이동평균 수치 입력창
 const tRate          = document.getElementById('trate');      // Target Rate 슬라이더
 const tRateNum       = document.getElementById('trate_num');  // Target Rate 수치 입력창
 const resetParamsBtn = document.getElementById('resetParams');// 파라미터 초기화 버튼
@@ -49,8 +51,6 @@ const fig1Bar   = document.getElementById('fig1Bar');   // 채널 on/off 버튼 
 const resetBtn1 = document.getElementById('resetZoom1');// 줌 리셋 버튼
 
 
-// --- 상단 성능 표시 (실시간 처리량/속도 표시) ---
-const clockEl = document.getElementById('clock');
 
 // --- Figure 2: 토글 바 & 계수 입력 영역 ---
 const resetBtn2 = document.getElementById('resetZoom2'); // 줌 리셋 버튼
@@ -77,6 +77,9 @@ const fsRate       = document.getElementById('fs_rate');      // 샘플링 속�
 const fsRateNum    = document.getElementById('fs_rate_num');  // 샘플링 속도 수치 입력
 const blockSize    = document.getElementById('block_size');   // 블록 크기 슬라이더
 const blockSizeNum = document.getElementById('block_size_num');// 블록 크기 수치 입력
+
+
+const statsDisplay = document.getElementById('statsDisplay');
 
 
 
@@ -107,6 +110,89 @@ let fig2ToggleKey = '';
 //        수치 입력창을 바꾸면 슬라이더 위치도 자동 갱신
 // ============================================================
 
+/**
+ * ✅ Y축 범위 설정 UI의 이벤트 리스너를 설정하는 함수
+ */
+function setupYAxisControls() {
+  // '범위 적용' 버튼 (기존 로직)
+  yApply1.addEventListener('click', () => {
+    const min = parseFloat(yMin1.value);
+    const max = parseFloat(yMax1.value);
+    if (!isNaN(min)) fig1.options.scales.y.min = min;
+    if (!isNaN(max)) fig1.options.scales.y.max = max;
+
+    fig1.update();
+  });
+  
+  // --- fig1 Y축 자동 ---
+  yAuto1.addEventListener('click', () => {
+    fig1.options.scales.y.min = undefined;
+    fig1.options.scales.y.max = undefined;
+    yMin1.value = '';
+    yMax1.value = '';
+    fig1.update();
+  });
+
+
+  // --- fig3에 대해서도 동일하게 적용 ---
+
+  // '범위 적용' 버튼 (기존 로직)
+  yApply3.addEventListener('click', () => {
+    const min = parseFloat(yMin3.value);
+    const max = parseFloat(yMax3.value);
+    if (!isNaN(min)) fig3.options.scales.y.min = min;
+    if (!isNaN(max)) fig3.options.scales.y.max = max;
+
+    // ✅ X축은 절대 건드리지 않음
+    fig3.update();
+  });
+
+ // --- fig3 Y축 자동 ---
+  yAuto3.addEventListener('click', () => {
+    fig3.options.scales.y.min = undefined;
+    fig3.options.scales.y.max = undefined;
+    yMin3.value = '';
+    yMax3.value = '';
+    fig3.update();
+  });
+}
+
+// ✅ 각 그래프 전용 시간 카운터
+let lastTimeX1 = 0;
+let lastTimeX3 = 0;
+
+
+// ✅ Figure1 전용 리셋
+function resetFig1Data() {
+  lastTimeX1 = 0;
+  fig1.data.labels = [];
+  fig1.data.datasets.forEach(ds => ds.data = []);
+  // 눈금(1초) 유지 + 범위 오염 방지
+  fig1.options.scales.x.min = 0;
+  fig1.options.scales.x.max = undefined;
+  fig1.resetZoom?.();
+  fig1.update('none');
+}
+
+// ✅ Figure3 전용 리셋
+function resetFig3Data() {
+  lastTimeX3 = 0;
+  fig3.data.labels = [];
+  fig3.data.datasets.forEach(ds => ds.data = []);
+  fig3.options.scales.x.min = 0;
+  fig3.options.scales.x.max = undefined;
+  fig3.resetZoom?.();
+  fig3.update('none');
+}
+
+// 버튼에 연결
+function setupDataResetButtons() {
+  dataReset1.addEventListener('click', resetFig1Data);
+  dataReset3.addEventListener('click', resetFig3Data);
+}
+
+
+
 function bindPair(rangeEl, numEl) {
   if (!rangeEl || !numEl) return; // DOM 요소가 없으면 무시
   rangeEl.addEventListener('input', () => { numEl.value = rangeEl.value; });
@@ -121,7 +207,59 @@ bindPair(tRate, tRateNum);   // Target Rate
 bindPair(fsRate, fsRateNum); // 샘플링 속도
 bindPair(blockSize, blockSizeNum); // 블록 크기
 
+/**
+ * 차트에 데이터셋(라인)이 없으면 생성해주는 함수
+ */
+function ensureDatasets(chart, nCh, labelPrefix = 'ch', toggleRenderer) {
+  if (chart.data.datasets.length === nCh) return;
 
+  chart.data.datasets = Array.from({ length: nCh }, (_, k) => ({
+    label: `${labelPrefix}${k}`,
+    data: [],                    // ← XY 포인트 배열로 사용 예정
+    borderColor: palette[k % palette.length],
+    borderWidth: 1.5,
+    fill: false,
+    tension: 0.1,
+    // XY 모드에서 기본 파싱 사용 (x,y 키 읽음)
+    parsing: true,
+    spanGaps: false
+  }));
+
+  if (toggleRenderer) toggleRenderer(chart);
+}
+/**
+ * 차트에 새 데이터 블록을 누적하는 함수 (수정된 버전)
+ */
+function appendDataToChart(chart, x_block, y_block_2d) {
+  if (!y_block_2d || y_block_2d.length === 0 || y_block_2d[0].length === 0) return;
+
+  const nCh = y_block_2d[0].length;
+  let labelPrefix = 'ch', toggleRenderer = renderChannelToggles;
+
+  if (chart.canvas.id === 'fig3') {
+    labelPrefix = 'Ravg';
+    toggleRenderer = renderFig3Toggles;
+  }
+  
+  // 1. 데이터셋(라인)이 존재하는지 확인 및 생성
+  ensureDatasets(chart, nCh, labelPrefix, toggleRenderer);
+
+  // 2. 새 데이터를 각 데이터셋에 추가
+  chart.data.labels.push(...x_block);
+  for (let ch = 0; ch < nCh; ch++) {
+    const newChannelData = y_block_2d.map(row => row[ch]);
+    chart.data.datasets[ch].data.push(...newChannelData);
+  }
+
+  // 3. 최대 데이터 포인트 수를 초과하면 오래된 데이터 제거
+  while (chart.data.labels.length > MAX_DATA_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(dataset => dataset.data.shift());
+  }
+
+  // 4. 차트 업데이트
+  chart.update('none');
+}
 
 // ============================================================
 //  [Figure 1: 채널 토글 바]
@@ -140,7 +278,8 @@ let chToggleRenderedCount = 0;
  * @param {number} nCh - 총 채널 개수
  * @param {Chart} chart - Chart.js 인스턴스
  */
-function renderChannelToggles(nCh, chart) {
+function renderChannelToggles(chart) {
+  const nCh = chart.data.datasets.length;
   // fig1Bar 없거나, 이미 동일한 수의 토글 버튼이 렌더링된 경우 → 스킵
   if (!fig1Bar || (chToggleRenderedCount === nCh && fig1Bar.childElementCount === nCh)) return;
 
@@ -215,49 +354,95 @@ function makeChart(ctx, { legend = false, xTitle = '', yTitle = '' } = {}) {
       animation: false,
       responsive: true,
       maintainAspectRatio: false,
+      devicePixelRatio: window.devicePixelRatio,
       interaction: { mode: 'nearest', intersect: false },
       elements: { point: { radius: 0 } },
+
+      // 🎨 배경 및 스타일
+      layout: {
+        backgroundColor: '#1e1f23' // 차트 전체 배경 (GPT 다크모드 느낌)
+      },
+
       scales: {
         x: {
-          ticks: { color: '#94a3b8' },
-          grid: { color: '#1f2937' },
-          title: { display: !!xTitle, text: xTitle, color: '#94a3b8' }
+          type: 'linear',
+         ticks: {
+                  stepSize: 1,        // ✅ 무조건 1초 단위로 표시
+                  color: '#f7f7f8'
+                },
+          grid: { color: '#3a3b45' },         // 옅은 회색 그리드
+          title: { 
+            display: !!xTitle, 
+            text: xTitle, 
+            color: '#f7f7f8' 
+          }
         },
         y: {
-          ticks: { color: '#94a3b8' },
-          grid: { color: '#1f2937' },
-          title: { display: !!yTitle, text: yTitle, color: '#94a3b8', font:{ size:14 } }
-        },
+          ticks: { stepSize: 1, color: '#f7f7f8' },
+          grid: { color: '#3a3b45' },
+          title: { 
+            display: !!yTitle, 
+            text: yTitle, 
+            color: '#f7f7f8', 
+            font: { size: 14 } 
+          }
+        }
       },
+
       plugins: {
-        legend: { display: legend },
+        legend: { 
+          display: legend,
+          labels: { color: '#f7f7f8' } // 범례 글자 흰색
+        },
         decimation: { enabled: true, algorithm: 'min-max' }, // 대량 데이터 성능 최적화
         zoom: {
           zoom: {
             wheel: { enabled: true, modifierKey: 'ctrl' }, // Ctrl+휠 줌
             pinch: { enabled: true },                      // 핀치 줌 (모바일)
             drag: { enabled: true },                       // 드래그 줌
-            mode: 'x'                                     // X축 방향 줌 고정
+            mode: 'x'                                      // X축 방향 줌 고정
           },
           pan: { enabled: false }
         },
-        tooltip: { enabled: true, intersect: false }
+        tooltip: { 
+          enabled: true, 
+          intersect: false,
+          titleColor: '#f7f7f8', 
+          bodyColor: '#f7f7f8',
+          backgroundColor: '#1e1f23'
+        }
       }
     }
   });
 }
 
+
 // --- 실제 차트 인스턴스 생성 ---
 // fig1: 원신호(멀티채널) 그래프
-const fig1 = makeChart(fig1Ctx, { xTitle: 'Sample Index', yTitle: 'Signal Value (V)' });
+const fig1 = makeChart(fig1Ctx, { xTitle: 'Time (s)', yTitle: 'Signal Value (V)' });
 // fig2: 파생 신호(yt 등) 그래프
 const fig2 = makeChart(fig2Ctx, { xTitle: 'Sample Index', yTitle: 'yt (unit)' });
+const fig3Ctx   = document.getElementById('fig3');   // Stage5 그래프
+const resetBtn3 = document.getElementById('resetZoom3');
+const fig3Bar   = document.getElementById('fig3Bar');
+const yMin1 = document.getElementById('yMin1'), yMax1 = document.getElementById('yMax1'), yApply1 = document.getElementById('yApply1');
+const yMin3 = document.getElementById('yMin3'), yMax3 = document.getElementById('yMax3'), yApply3 = document.getElementById('yApply3');
+const dataReset1 = document.getElementById('dataReset1');
+const dataReset3 = document.getElementById('dataReset3');
+const yAuto1 = document.getElementById('yAuto1');
+const yAuto3 = document.getElementById('yAuto3');
+
+
+// fig3: Stage5 Ravg 그래프
+const fig3 = makeChart(fig3Ctx, { xTitle: 'Time (s)', yTitle: 'Stage5 Ravg (unit)' });
 
 // --- 줌 리셋 이벤트 (더블클릭 또는 버튼 클릭) ---
 fig1Ctx.addEventListener('dblclick', () => fig1.resetZoom());
 resetBtn1?.addEventListener('click', () => fig1.resetZoom());
 fig2Ctx.addEventListener('dblclick', () => fig2.resetZoom());
 resetBtn2?.addEventListener('click', () => fig2.resetZoom());
+fig3Ctx.addEventListener('dblclick', () => fig3.resetZoom());
+resetBtn3?.addEventListener('click', () => fig3.resetZoom());
 
 
 // ============================================================
@@ -275,49 +460,55 @@ resetBtn2?.addEventListener('click', () => fig2.resetZoom());
 //      채널별로 dataset.data에 매핑 후 차트를 업데이트.
 // ============================================================
 
-/**
- * Figure 1 데이터셋 존재 보장 (채널 수 맞춰 생성)
- * @param {number} nCh - 채널 개수
- */
-function ensureFig1Datasets(nCh) {
-  if (fig1.data.datasets.length !== nCh) {
-    fig1.data.datasets = Array.from({ length: nCh }, (_, k) => ({
-      label: `ch${k}`,
-      data: [],
-      borderColor: palette[k % palette.length], // 채널별 색상 순환
-      borderWidth: 1,
-      fill: false,
-      tension: 0
-    }));
-  }
-  renderChannelToggles(nCh, fig1); // 채널 토글 버튼 갱신
-}
+
+
+
 
 /**
  * Figure 1 데이터 반영
  * @param {Array<number>} x   - X축 값 (샘플 인덱스 등)
  * @param {Array<Array<number>>} y2d - 2차원 배열 [row][ch]
  */
-function setFig1Data(x, y2d) {
-  if (!Array.isArray(y2d) || y2d.length === 0) return;
 
-  // 채널 개수 추론 (y2d[0]이 배열이면 열 길이, 아니면 단일채널)
-  const nCh = Array.isArray(y2d[0]) ? y2d[0].length : 1;
 
-  // 채널 수에 맞는 dataset 생성 보장
-  ensureFig1Datasets(nCh);
+// ============================================================
+//  [Figure 1-2: 데이터 처리 (5단계 까지 진행한 raw 데이터)]
+// ------------------------------------------------------------
+// ✅ Figure 1-2 (Ravg)를 위한 상태 변수
+let fig3Vis = {};
+let fig3ToggleKey = '';
 
-  // X축 레이블 설정
-  fig1.data.labels = x;
+/**
+ * Figure 3 토글 버튼 생성 함수
+ */
+function renderFig3Toggles(chart) {
+  if (!fig3Bar) return;
+  const key = (chart.data.datasets || []).map(ds => ds.label || '').join('|');
+  if (fig3ToggleKey === key) return;
+  fig3ToggleKey = key;
+  fig3Bar.innerHTML = '';
 
-  // 각 채널 데이터를 dataset에 매핑
-  for (let c = 0; c < nCh; c++) {
-    const col = y2d.map(row => row[c]);
-    fig1.data.datasets[c].data = col;
-  }
+  chart.data.datasets.forEach((ds, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'ch-toggle';
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    sw.style.background = ds.borderColor || '#60a5fa';
+    const label = document.createElement('span');
+    label.textContent = ds.label || `Ravg${idx}`;
+    btn.appendChild(sw);
+    btn.appendChild(label);
+    if (ds.hidden) btn.classList.add('off');
 
-  // 차트 업데이트 (애니메이션 없음)
-  fig1.update('none');
+    btn.addEventListener('click', () => {
+      ds.hidden = !ds.hidden;
+      const name = ds.label || `Ravg${idx}`;
+      fig3Vis[name] = !!ds.hidden;
+      btn.classList.toggle('off', !!ds.hidden);
+      chart.update('none');
+    });
+    fig3Bar.appendChild(btn);
+  });
 }
 
 
@@ -385,7 +576,6 @@ function renderFig2Toggles(chart) {
     fig2Bar.appendChild(btn);
   });
 }
-
 
 
 // ============================================================
@@ -536,10 +726,10 @@ function applyParamsToUI(p) {
   // ----- 공통 슬라이더/숫자 입력 동기화 -----
   if (lpf)      lpf.value      = p.lpf_cutoff_hz;
   if (lpfNum)   lpfNum.value   = p.lpf_cutoff_hz;
-  if (maCh)     maCh.value     = p.movavg_ch;
-  if (maChNum)  maChNum.value  = p.movavg_ch;
-  if (maR)      maR.value      = p.movavg_r;
-  if (maRNum)   maRNum.value   = p.movavg_r;
+  if (maCh)     maCh.value     = p.movavg_ch_sec;
+  if (maChNum)  maChNum.value  = p.movavg_ch_sec;
+  if (maR)      maR.value      = p.movavg_r_sec;
+  if (maRNum)   maRNum.value   = p.movavg_r_sec;
   if (tRate)    tRate.value    = p.target_rate_hz;
   if (tRateNum) tRateNum.value = p.target_rate_hz;
 
@@ -574,9 +764,9 @@ function applyParamsToUI(p) {
     <p><strong>LPF Cutoff(저역통과 필터 설정값)</strong> :
        <span class="param-value">${p.lpf_cutoff_hz} Hz</span></p>
     <p><strong>CH Moving Avg(채널 이동 평균 윈도우 크기)</strong> :
-       <span class="param-value">${p.movavg_ch}</span></p>
+       <span class="param-value">${p.movavg_ch_sec}</span></p>
     <p><strong>R Moving Avg(R 이동 평균 윈도우 크기)</strong> :
-       <span class="param-value">${p.movavg_r}</span></p>
+       <span class="param-value">${p.movavg_r_sec}</span></p>
     <p><strong>Target Rate(출력 속도, 시간평균 후 UI 표시 속도)</strong> :
        <span class="param-value">${p.target_rate_hz} S/s</span></p>
     <p><strong>Sampling Frequency(하드웨어 ADC 속도)</strong> :
@@ -620,8 +810,8 @@ document.getElementById('apply')?.addEventListener('click', () => {
   postParams({
     sampling_frequency: parseFloat(fsRateNum.value) * 1000, // kS/s → S/s
     lpf_cutoff_hz: parseFloat(lpfNum.value),
-    movavg_ch:     parseInt(maChNum.value),
-    movavg_r:      parseInt(maRNum.value),
+    movavg_ch_sec:     parseFloat(maChNum.value),
+    movavg_r_sec:      parseFloat(maRNum.value),
     target_rate_hz: parseFloat(tRateNum.value),
     block_samples: parseInt(blockSizeNum.value),
   });
@@ -650,6 +840,30 @@ saveYt?.addEventListener('click', () => {
   postParams({ E, F });
 });
 
+// ‼️ 성능 데이터를 UI에 업데이트하는 새 함수를 추가합니다.
+/**
+ * 헤더의 성능 지표 UI를 업데이트하는 함수
+ * @param {Object} stats - 파이프라인에서 받은 stats 객체
+ */
+function updateStatsDisplay(stats) {
+  if (!statsDisplay || !stats) return;
+
+  // 가독성을 위해 단위를 변환 (Hz -> kS/s, MS/s)
+  const fs = stats.sampling_frequency;
+  const fsDisplay = fs >= 1_000_000 ? `${(fs / 1_000_000).toFixed(1)} MS/s` : `${(fs / 1000).toFixed(1)} kS/s`;
+
+  // ‼️ 각 항목을 "라벨: 값" 형태의 문자열로 만듭니다.
+  const items = [
+    `샘플링 속도: <span class="stat-value">${fsDisplay}</span>`,
+    `블록 크기: <span class="stat-value">${stats.block_samples} samples</span>`,
+    `블록 시간: <span class="stat-value">${stats.actual_block_time_ms.toFixed(2)} ms</span>`,
+    `블록 처리량: <span class="stat-value">${stats.actual_blocks_per_sec.toFixed(2)} blocks/s</span>`,
+    `실제 처리량: <span class="stat-value">${stats.actual_proc_kSps.toFixed(2)} kS/s/ch</span>`
+  ];
+  
+  // ‼️ 배열 항목들을 구분자 '|'와 함께 합쳐서 한 줄의 HTML로 만듭니다.
+  statsDisplay.innerHTML = items.join('<span class="separator"> | </span>');
+}
 
 
 // ============================================================
@@ -673,66 +887,75 @@ saveYt?.addEventListener('click', () => {
 //      * proc_kSps    : 실제 처리량 (pipeline.py에서 전달된 kS/s/ch)
 // ============================================================
 
+// ===== WebSocket 연결 (fig1/fig3 시간축 분리 버전) =====
 let ws;
+
 function connectWS() {
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
   ws = new WebSocket(url);
 
-  ws.onmessage = ev => {
+  ws.onopen = () => {
+    // 필요시 핑/초기 메시지 등 넣기
+    // console.log('[WS] connected');
+  };
+
+  ws.onmessage = (ev) => {
     try {
       const m = JSON.parse(ev.data);
 
       if (m.type === 'params') {
-        // ---- 파라미터 갱신 ----
+        // 파라미터 갱신
         applyParamsToUI(m.data);
+        return;
+      }
 
-      } else if (m.type === 'frame') {
-        // ---- 원신호 (멀티채널) Figure 1 ----
-        const x   = m.window.x;
-        const y2d = m.window.y;
-        setFig1Data(x, y2d);
+      if (m.type === 'frame') {
+        // 1) 원신호(멀티채널) 블록
+        const y_block = m.y_block; // shape: [samples][channels]
+        // 2) Ravg 블록 (옵션)
+        const ravg_block = m.ravg_signals ? m.ravg_signals.series : []; // shape: [channels][samples]
 
-        // ---- 파생 신호 (yt 등) Figure 2 ----
+        if (y_block && y_block.length > 0) {
+          const n_new = y_block.length;
+          const dt = 1.0 / m.params.target_rate_hz; // 예: 0.1s
+
+          // --- Figure1 시간 업데이트 (독립) ---
+          const new_times1 = Array.from({ length: n_new }, (_, i) => lastTimeX1 + (i + 1) * dt);
+          lastTimeX1 = new_times1[new_times1.length - 1];
+          appendDataToChart(fig1, new_times1, y_block);
+
+          // --- Figure3 시간 업데이트 (독립) ---
+          if (Array.isArray(ravg_block) && ravg_block.length > 0) {
+            // [ch][sample] → [sample][ch]
+            const ravg_transposed = ravg_block[0].map((_, colIdx) => ravg_block.map(row => row[colIdx]));
+            const new_times3 = Array.from({ length: n_new }, (_, i) => lastTimeX3 + (i + 1) * dt);
+            lastTimeX3 = new_times3[new_times3.length - 1];
+            appendDataToChart(fig3, new_times3, ravg_transposed);
+          }
+        }
+
+        // 4ch 파생(덮어쓰기) 차트
         if (m.derived) {
           setFig2Multi(m.derived);
         }
-
-        // ---- 성능 통계 표시 ----
-        if (m.stats && clockEl) {
-          const s = m.stats;
-
-          // 블록 시간 (ms)
-          const blockTimeMs = (s.block_samples && s.sampling_frequency)
-            ? (s.block_samples / s.sampling_frequency * 1000)
-            : 0;
-
-          // 초당 블록 처리량 (blocks/s)
-          const blocksPerSec = (s.block_samples && s.sampling_frequency)
-            ? (s.sampling_frequency / s.block_samples)
-            : 0;
-
-          // 샘플링 속도 (kS/s)
-          const fs_kSps = s.sampling_frequency ? (s.sampling_frequency / 1000) : 0;
-
-          // 실제 처리량 (kS/s/ch) — pipeline.py에서 stats.proc_kSps로 전달됨
-          const proc_kSps = s.proc_kSps ? s.proc_kSps : 0;
-          
-          // 헤더 영역 실시간 성능 정보 표시
-          clockEl.textContent =
-            `샘플링 속도: ${fs_kSps.toFixed(1)} kS/s | ` +
-            `블록 크기: ${s.block_samples} samples | ` +
-            `블록 시간: ${blockTimeMs.toFixed(2)} ms | ` +
-            `블록 처리량: ${blocksPerSec.toFixed(1)} blocks/s | ` +
-            `실제 처리량: ${proc_kSps.toFixed(1)} kS/s/ch`;
+        // frame 메시지에 stats 객체가 있으면 헤더 UI를 업데이트합니다.
+        if (m.stats) {
+          updateStatsDisplay(m.stats);
         }
       }
-    } catch(e) {
-      console.error(e);
+    } catch (e) {
+      console.error('WebSocket message parse error', e);
     }
   };
-  
-  // 연결이 끊어졌을 경우 1초 후 자동 재연결
-  ws.onclose = () => { setTimeout(connectWS, 1000); };
+
+  ws.onerror = (e) => {
+    console.error('[WS] error', e);
+  };
+
+  ws.onclose = () => {
+    // console.warn('[WS] closed. reconnecting...');
+    setTimeout(connectWS, 1000);
+  };
 }
 
 
@@ -759,37 +982,6 @@ resetParamsBtn?.addEventListener('click', async () => {
 });
 
 
-
-// ============================================================
-//  [README 버튼 눌렀을 경우 노출 되는 모달 영역]
-// ------------------------------------------------------------
-//  - DOMContentLoaded 이벤트: HTML 로딩 완료 후 모달 관련 요소를 가져옴
-//  - readmeBtn 클릭 시 → 모달 열기 (display: block)
-//  - closeBtn 클릭 시 → 모달 닫기 (display: none)
-//  - 모달 바깥 영역 클릭 시 → 모달 닫기
-// ============================================================
-
-window.addEventListener("DOMContentLoaded", () => {
-  const modal = document.getElementById("readmeModal"); // 모달 전체 영역
-  const closeBtn = document.querySelector(".close-btn"); // 닫기 버튼 (X)
-  const readmeBtn = document.getElementById("readmeBtn"); // README 버튼
-
-  // README 버튼 클릭 시 모달 열기
-  readmeBtn.addEventListener("click", () => {
-    modal.style.display = "block";
-  });
-
-  // 닫기 버튼(X) 클릭 시 모달 닫기
-  closeBtn.onclick = () => modal.style.display = "none";
-
-  // 모달 외부(배경) 클릭 시 모달 닫기
-  window.onclick = (e) => {
-    if (e.target === modal) modal.style.display = "none";
-  };
-});
-
-
-
 // ============================================================
 //  [초기 실행]
 // ------------------------------------------------------------
@@ -802,3 +994,6 @@ connectWS();
 
 // 서버에서 파라미터 fetch → UI에 표시
 fetchParams();
+
+setupYAxisControls(); // ✅ 추가
+setupDataResetButtons(); // ✅ 추가
