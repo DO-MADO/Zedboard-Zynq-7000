@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <!-- ===================== [기본 메타 정보] ===================== -->
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>누적 데이터 차트</title>
+
+    <!-- ===================== [스타일시트 연결] ===================== -->
+    <link rel="stylesheet" href="/static/testPage/testStyle.css" />
+
+    <!-- ===================== [Chart.js 라이브러리] ===================== -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <!-- ============================================================
+         ⏱️ 실시간 성능 상태 표시 (상단 시계 영역)
+    ============================================================ -->
+    <div id="clock" class="muted">—</div>
+
+    <!-- ============================================================
+         🎚️ Y축 범위 제어 패널 (드래그 가능)
+    ============================================================ -->
+    <div class="y-axis-controls" id="yAxisControlPanel">
+      <!-- 드래그 핸들 -->
+      <div class="drag-handle">:: Y축 제어 (드래그) ::</div>
+
+      <!-- 입력/버튼 컨트롤 -->
+      <div class="controls-content">
+        <label for="yMinInput">Y축 범위:</label>
+        <input type="number" id="yMinInput" placeholder="최소값" step="0.1" />
+        <span>~</span>
+        <input type="number" id="yMaxInput" placeholder="최대값" step="0.1" />
+        <button id="applyYRangeBtn">적용</button>
+        <button id="resetYRangeBtn">자동</button>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         🎛️ 채널 토글 버튼 + Zoom 리셋 버튼 툴바
+    ============================================================ -->
+    <div class="toolbar">
+      <!-- 채널 On/Off 토글 버튼 -->
+      <a href="/" class="test-btn">처음 화면</a>
+      <div id="fig1Bar" class="legend-bar"></div>
+
+      <!-- Zoom 리셋 버튼 -->
+      <button id="resetZoomBtn" class="btn">Zoom 리셋 (더블클릭 가능)</button>
+    </div>
+
+    <!-- ============================================================
+         📊 메인 차트 컨테이너
+    ============================================================ -->
+    <div id="chart-container">
+      <canvas id="accumulatingChart"></canvas>
+    </div>
+
+    <!-- ============================================================
+         📜 자바스크립트 로직 (Chart.js + WebSocket 처리)
+    ============================================================ -->
+    <script type="module" src="/static/testPage/test.js"></script>
+  </body>
+</html>

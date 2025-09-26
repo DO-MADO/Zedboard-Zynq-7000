@@ -5,5 +5,8 @@ matplotlib
 pyadi-iio
 pylibiio
 fastapi
-uvicorn
 plotly
+fastapi.responses
+fastapi.staticfiles
+pydantic
+uvicorn

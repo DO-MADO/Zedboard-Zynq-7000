@@ -1,3 +1,10 @@
+# ============================================================
+# [main.py]  ⚠️ 현재는 더 이상 사용하지 않는 구버전 실행 스크립트
+#  - 구버전: Matplotlib 기반 단일 신호 실시간 플롯
+#  - 신버전: app.py + pipeline.py 조합 (WebSocket + Chart.js) 사용
+#  - 유지 목적: 과거 테스트/레거시 참고용
+# ============================================================
+
 import argparse
 import time
 import threading
@@ -7,66 +14,66 @@ import pandas as pd
 from scipy.signal import butter, sosfilt, sosfiltfilt
 import matplotlib.pyplot as plt
 
-# ============================
-# Configuration (edit freely)
-# ============================
-FS_HZ_DEFAULT      = 100_000        # expected sample rate (used for LPF design in synthetic mode)
-BLOCK_SAMPLES      = 4096           # samples pulled per read
-ROLLING_WINDOW_SEC = 5.0            # plot window length in seconds
-CSV_PATH           = "stream_log.csv"
-PARQUET_PATH       = None           # e.g., "stream_log.parquet"
-SAVE_EVERY_BLOCKS  = 5              # write every N blocks
+# ============================================================
+# [설정값] Config
+# ============================================================
+FS_HZ_DEFAULT      = 100_000        # 기본 샘플링 속도 (synthetic 모드에서 LPF 설계용)
+BLOCK_SAMPLES      = 4096           # 한 번에 읽어오는 샘플 개수
+ROLLING_WINDOW_SEC = 5.0            # 화면에 표시할 롤링 윈도우 시간 (초 단위)
+CSV_PATH           = "stream_log.csv"  # 로그 저장 경로
+PARQUET_PATH       = None              # Parquet 저장 (옵션)
+SAVE_EVERY_BLOCKS  = 5                 # N 블록마다 CSV 저장
 
-# Filters (defaults)
-LPF_CUTOFF_HZ      = 5_000          # user-adjustable LPF cutoff
-LPF_ORDER          = 4
-MOVING_AVG_N       = 8              # moving-average window (samples); 1 to disable
-TIME_AVG_SAMPLES   = 20             # UISafe numeric readout smoothing (rolling mean on block means)
+# 필터/보정 관련 파라미터
+LPF_CUTOFF_HZ      = 5_000          # LPF 컷오프 (Hz)
+LPF_ORDER          = 4              # LPF 차수
+MOVING_AVG_N       = 8              # 이동평균 윈도우 크기 (1이면 비활성화)
+TIME_AVG_SAMPLES   = 20             # 화면 표시용 롤링 평균 샘플 수
+POLY_COEFFS        = None           # 보정용 다항식 계수 (예: np.array([a2,a1,a0]))
 
-# Polynomial calibration (y = P(x)); leave None to bypass
-POLY_COEFFS        = None           # e.g., np.array([a2, a1, a0]) for ax^2 + bx + c
+# IIO 데이터 형식
+IIO_DTYPE          = np.int32       # IIO raw buffer 언팩 시 데이터 타입
 
-# For IIO raw buffer unpacking; adjust to your device's export format if needed
-IIO_DTYPE          = np.int32       # common defaults: int16/int32; change if samples look wrong
-
-# ==================================
-# Filter & calibration helpers
-# ==================================
+# ============================================================
+# [필터 및 보정 함수]
+# ============================================================
 def moving_average(x: np.ndarray, N: int) -> np.ndarray:
+    """N 포인트 이동평균"""
     if N is None or N <= 1:
         return x
     c = np.ones(N, dtype=float) / float(N)
     return np.convolve(x, c, mode='same')
 
 def design_lpf(fs_hz: float, cutoff_hz: float, order: int = 4):
-    # normalized cutoff
+    """Butterworth LPF 설계 (sos 반환)"""
     nyq = 0.5 * fs_hz
     wn = np.clip(cutoff_hz / nyq, 1e-6, 0.999999)
-    from scipy.signal import butter
     return butter(order, wn, btype='low', output='sos')
 
 def apply_lpf(x: np.ndarray, sos, zero_phase: bool = False) -> np.ndarray:
+    """LPF 적용 (filt 또는 filtfilt)"""
     return sosfiltfilt(sos, x) if zero_phase else sosfilt(sos, x)
 
 def apply_poly(x: np.ndarray, coeffs):
+    """다항식 보정 적용 (없으면 통과)"""
     if coeffs is None:
         return x
     p = np.poly1d(coeffs)
     return p(x)
 
 class DisplayAverager:
-    """Rolling mean for numeric readout (block-wise)."""
+    """숫자 표시를 위한 블록 단위 롤링 평균"""
     def __init__(self, n: int):
-        from collections import deque
         self.buf = deque(maxlen=max(1, int(n)))
     def update(self, value: float) -> float:
         self.buf.append(float(value))
         return float(np.mean(self.buf))
 
-# ==================================
-# Data sources
-# ==================================
+# ============================================================
+# [데이터 소스] Synthetic / IIO
+# ============================================================
 class SyntheticSource:
+    """테스트용 합성 신호 발생기"""
     def __init__(self, fs_hz: float, f_sig: float = 3e3, snr_db: float = 20.0):
         self.fs = fs_hz
         self.f = f_sig
@@ -76,14 +83,14 @@ class SyntheticSource:
         t = (np.arange(n_samples) + self.n) / self.fs
         self.n += n_samples
         sig = np.sin(2*np.pi*self.f*t)
-        # Add noise matching SNR
+        # SNR 맞춰 잡음 추가
         p_sig = np.mean(sig**2)
         p_n = p_sig / (10.0 ** (self.snr_db/10.0))
         noise = np.random.normal(scale=np.sqrt(p_n), size=n_samples)
         return sig + noise
 
 class IIOSource:
-    """Tries pyadi-iio first; falls back to pylibiio generic read."""
+    """IIO 장치로부터 신호 읽기 (pyadi-iio → pylibiio fallback)"""
     def __init__(self, uri: str, device_hint: str | None = None, channel_hint: str | None = None):
         self.uri = uri
         self.device_hint = device_hint
@@ -92,17 +99,14 @@ class IIOSource:
         self._init_backend()
 
     def _init_backend(self):
-        # Try pyadi-iio (high-level)
+        # pyadi-iio 우선 시도
         try:
-            import adi  # type: ignore
-            # Generic context open. Many classes exist for devices; we keep a generic rx path.
-            # If AD4858 has a dedicated class in future, you can swap it in here.
-            self.adi_ctx = adi.context_manager.Context(self.uri)  # keep context alive
+            import adi
+            self.adi_ctx = adi.context_manager.Context(self.uri)
             self._adi = True
             self.mode = "pyadi"
-            # Find a device with input channels (voltage*), pick first channel
+            # RX 채널 검색
             devs = [d for d in self.adi_ctx.context.devices]
-            # Save the first RX-capable device and channel names
             self._adi_dev = None
             self._adi_chs = []
             for d in devs:
@@ -114,72 +118,58 @@ class IIOSource:
             if self._adi_dev is None:
                 raise RuntimeError("No RX channels found in pyadi-iio context")
             return
-        except Exception as e:
-            # Fallback to pylibiio
+        except Exception:
             self._adi = False
 
-        import iio  # pylibiio
+        # pylibiio fallback
+        import iio
         self.ctx = iio.Context(self.uri)
-        # pick device
         if self.device_hint:
             dev = self.ctx.find_device(self.device_hint)
             if dev is None:
-                raise RuntimeError(f"Device '{self.device_hint}' not found. Available: {[d.name for d in self.ctx.devices]}")
+                raise RuntimeError(f"Device '{self.device_hint}' not found")
             self.dev = dev
         else:
-            # choose the first device with at least one input channel that has a scan element
-            candidates = []
-            for d in self.ctx.devices:
-                ins = [ch for ch in d.channels if not ch.output]
-                if ins:
-                    candidates.append(d)
+            candidates = [d for d in self.ctx.devices if any(not ch.output for ch in d.channels)]
             if not candidates:
                 raise RuntimeError("No input-capable IIO devices found")
             self.dev = candidates[0]
 
-        # enable scan channels
+        # 입력 채널 활성화
         self.channels = [ch for ch in self.dev.channels if not ch.output and ("voltage" in ch.id)]
         if not self.channels:
-            # as a very last resort, take any input channel
             self.channels = [ch for ch in self.dev.channels if not ch.output]
         for ch in self.channels:
-            try:
-                ch.enabled = True
-            except Exception:
-                pass
+            try: ch.enabled = True
+            except Exception: pass
         self.mode = "pylibiio"
 
     def read_block(self, n_samples: int) -> np.ndarray:
+        """n_samples 크기 블록 읽기"""
         if self.mode == "pyadi":
-            # Use channel.read_raw for each channel, then stack (best-effort generic path)
             arrs = []
             for ch in self._adi_chs:
                 try:
-                    # read() not uniform across devices; read_raw gives bytes
                     raw = ch.read_raw(n_samples)
                     arr = np.frombuffer(raw, dtype=IIO_DTYPE)
                 except Exception:
-                    # If read_raw not available, bail out to empty array
                     arr = np.zeros(n_samples, dtype=IIO_DTYPE)
                 arrs.append(arr[:n_samples])
-            if not arrs:
-                return np.zeros(n_samples, dtype=float)
-            # For demo, use first channel
-            return arrs[0].astype(float)
+            return arrs[0].astype(float) if arrs else np.zeros(n_samples, dtype=float)
         else:
             import iio
             buf = iio.Buffer(self.dev, n_samples, cyclic=False)
             buf.refill()
-            # Read first input channel
             ch = self.channels[0]
             raw = ch.read(buf)
             arr = np.frombuffer(raw, dtype=IIO_DTYPE)
             return arr.astype(float)
 
-# ==================================
-# Processing thread
-# ==================================
+# ============================================================
+# [처리기 Processor]
+# ============================================================
 class Processor:
+    """필터링 + 이동평균 + 보정 처리기"""
     def __init__(self, fs_hz: float):
         self.fs = fs_hz
         self.lock = threading.Lock()
@@ -187,7 +177,6 @@ class Processor:
         self.display_avg = DisplayAverager(TIME_AVG_SAMPLES)
         self.roll = deque(maxlen=int(self.fs*ROLLING_WINDOW_SEC))
         self.block_counter = 0
-        self.csv_rows = []
 
     def process(self, block: np.ndarray) -> tuple[np.ndarray, float]:
         y = moving_average(block, MOVING_AVG_N)
@@ -195,17 +184,12 @@ class Processor:
         y = apply_poly(y, POLY_COEFFS)
         num_value = self.display_avg.update(np.mean(y))
         with self.lock:
-            # append to rolling window
-            needed = max(0, len(y) - (self.roll.maxlen - len(self.roll)))
-            # extend efficiently
-            if needed > 0:
-                pass
             self.roll.extend(y.tolist())
         return y, num_value
 
-# ==================================
-# Main
-# ==================================
+# ============================================================
+# [메인 실행 루프]
+# ============================================================
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["synthetic","iio"], default="synthetic")
@@ -213,6 +197,7 @@ def main():
     ap.add_argument("--fs", type=float, default=FS_HZ_DEFAULT, help="Sample rate hint (Hz)")
     args = ap.parse_args()
 
+    # 데이터 소스 선택
     if args.mode == "synthetic":
         src = SyntheticSource(fs_hz=args.fs)
         fs = args.fs
@@ -220,11 +205,11 @@ def main():
         if not args.uri:
             raise SystemExit("In iio mode you must pass --uri ip:...")
         src = IIOSource(uri=args.uri, device_hint="ad4858")
-        fs = args.fs  # if exact fs is known, set it; used for LPF design
+        fs = args.fs
 
     proc = Processor(fs_hz=fs)
 
-    # Prepare plotting
+    # Matplotlib 실시간 플롯 준비
     plt.ion()
     fig, ax = plt.subplots(figsize=(10,4))
     line, = ax.plot([], [])
@@ -232,15 +217,15 @@ def main():
     ax.set_xlabel("samples")
     ax.set_ylabel("amplitude")
 
-    # CSV init
+    # CSV 초기화
     if CSV_PATH and not pd.io.common.file_exists(CSV_PATH):
         pd.DataFrame(columns=["timestamp","value"]).to_csv(CSV_PATH, index=False)
 
     def update_plot():
+        """롤링 버퍼 데이터로 그래프 갱신"""
         with proc.lock:
             data = np.array(proc.roll, dtype=float)
-        if data.size == 0:
-            return
+        if data.size == 0: return
         x = np.arange(len(data))
         line.set_data(x, data)
         ax.set_xlim(0, len(data))
@@ -249,18 +234,19 @@ def main():
         fig.canvas.draw()
         fig.canvas.flush_events()
 
-    last_save = time.time()
+    # 메인 루프
     while True:
         block = src.read_block(BLOCK_SAMPLES).astype(float)
         y, number_readout = proc.process(block)
         print(f"\rRolling mean: {number_readout: .6f}", end="")
 
-        # Log to CSV every few blocks
+        # 로그 저장
         proc.block_counter += 1
         if CSV_PATH and (proc.block_counter % SAVE_EVERY_BLOCKS == 0):
             ts = time.time()
             df = pd.DataFrame({"timestamp":[ts], "value":[float(number_readout)]})
             df.to_csv(CSV_PATH, mode="a", header=False, index=False)
+
         update_plot()
 
 if __name__ == "__main__":
