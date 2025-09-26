@@ -1,0 +1,496 @@
+/* ============================================================
+ 🎨 색상 변수 팔레트 정리 (Design System)
+ 
+ Dark Mode (기본) vs Gray Mode (밝은 테마)
+ ------------------------------------------------------------
+ 변수명          | Dark Mode 값    | Gray Mode 값
+ ------------------------------------------------------------
+ --bg           | #0b1120         | #fefce8
+ --panel        | #111827         | #f1f5f9
+ --muted        | #6b7280         | #4b5563
+ --text         | #e5e7eb         | #111827
+ --accent       | #10b981         | (공통, 변경 없음)
+ --border       | #1f2937         | #d1d5db
+ --label-color  | #94a3b8         | #4b5563
+ ============================================================ */
+ 
+
+/* ===================== [공통 변수 & 색상 테마] ===================== */
+:root {
+  --bg: #0b1120;
+  --panel: #111827;
+  --muted: #6b7280;
+  --text: #e5e7eb;
+  --accent: #10b981;
+  --border: #1f2937;
+  --label-color: #94a3b8;
+}
+body.gray-mode {
+  --bg: #fefce8;
+  --panel: #f1f5f9;
+  --muted: #4b5563;
+  --text: #111827;
+  --border: #d1d5db;
+  --label-color: #4b5563;
+}
+
+/* ===================== [리셋 & 공통 스타일] ===================== */
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto,
+    Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+  line-height: 1.5;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* ===================== [헤더 영역] ===================== */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: rgba(11, 15, 22, 0.8);
+  backdrop-filter: blur(6px);
+}
+body.gray-mode header {
+  background: #fefce8;
+}
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+header .brand {
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* ===================== [그리드 레이아웃 & 카드] ===================== */
+.grid {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.3s, border-color 0.3s;
+}
+.card h2 {
+  margin: 2px 0 12px 0;
+  font-size: 18px;
+  padding: 5px;
+  color: #cbd5e1;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+body.gray-mode .card h2 {
+  color: #334155;
+}
+
+/* ===================== [컨트롤 (슬라이더/입력)] ===================== */
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 두 열 */
+  gap: 16px 32px; /* 세로 16px, 가로 32px 간격 */
+}
+
+.param {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.param label {
+  flex: 0 0 190px;     /* 라벨은 항상 160px 차지 */
+  white-space: nowrap; /* 줄바꿈 금지 */
+  margin-right: 8px;   /* 라벨과 슬라이더 사이 여백 */
+  text-align: left;   /* 라벨 텍스트를 오른쪽 정렬 (선택) */
+  margin-left: 10px;
+}
+
+.param input[type="range"] {
+  flex: 1;
+  max-width: 250px;  /* 최대 길이 제한 */
+}
+
+.param input[type="number"] {
+  width: 80px;
+}
+
+.controls label {
+  font-size: 12px;
+  color: var(--label-color);
+}
+.controls input[type="range"] {
+  width: 160px;
+}
+select,
+input[type="number"],
+input[type="text"] {
+  background: #0f172a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px;
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+body.gray-mode select,
+body.gray-mode input[type="number"],
+body.gray-mode input[type="text"] {
+  background: #f1f5f9;
+  color: var(--text);
+}
+
+/* ===================== [기본 텍스트 & 뮤트 스타일] ===================== */
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ===================== [캔버스 (차트 영역)] ===================== */
+canvas {
+  width: 100% !important;
+  height: 360px !important;
+}
+
+/* ===================== [푸터] ===================== */
+footer {
+  text-align: center;
+  padding: 10px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+/* ===================== [범례 & 채널 토글] ===================== */
+.legend-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+.ch-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #0f172a;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px 8px;
+  color: #e5e7eb;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+body.gray-mode .ch-toggle {
+  background: #f1f5f9;
+  color: var(--text);
+}
+.ch-toggle .swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+.ch-toggle.off {
+  opacity: 0.55;
+}
+.ch-toggle.off .swatch {
+  opacity: 0.4;
+}
+
+/* ===================== [툴바 & 버튼] ===================== */
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.btn {
+  background: #0f172a;
+  color: #e5e7eb;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s, color 0.2s;
+}
+body.gray-mode .btn {
+  background: #f1f5f9;
+  color: var(--text);
+}
+.btn:hover {
+  background: var(--text);
+  color: var(--panel);
+}
+body.gray-mode .btn:hover {
+  background: #cbd5e1;
+  color: var(--text);
+}
+
+.test-btn {
+  margin-left: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);   /* 얇은 1px 테두리 */
+  border-radius: 12px;
+  background-color: transparent;     /* 배경 투명 */
+  color: var(--text);                /* 글자색은 테마 색상 */
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none; /* 밑줄 제거 */
+  font-weight: normal;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+
+}
+
+/* Dark Mode hover → 반전 */
+body:not(.gray-mode) .test-btn:hover {
+  background-color: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+/* Gray Mode hover → 은은한 회색 강조 */
+body.gray-mode .test-btn:hover {
+  background-color: #cbd5e1;   /* Gray-300 느낌 */
+  color: var(--text);          /* 글씨는 그대로 테마 색 */
+  border-color: #cbd5e1;
+}
+
+
+
+/* ===================== [테마 스위치 토글] ===================== */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 28px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #334155;
+  border-radius: 34px;
+  transition: 0.4s;
+}
+.slider:before {
+  position: absolute;
+  content: "🌙";
+  height: 22px;
+  width: 22px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--panel);
+  border-radius: 50%;
+  transition: 0.4s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+input:checked + .slider {
+  background-color: #cbd5e1;
+}
+input:checked + .slider:before {
+  transform: translateX(22px);
+  content: "☀️";
+  background-color: white;
+}
+
+/* ===================== [파라미터 컨트롤 & 계수 입력] ===================== */
+#apply,
+#resetParams {
+  margin-top: 14px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+.coeffs {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.coeffs input[type="text"] {
+  width: 160px;
+}
+
+/* ===================== [세부 컨트롤 레이아웃] ===================== */
+.horizontal-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding-left: 6px;
+}
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+/* ===================== [그래프 범례 스타일] ===================== */
+.graph-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.graph-legend .swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--accent);
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+/* ===================== [파라미터 뷰] ===================== */
+.parameter-view {
+  margin-top: 22px;
+}
+.parameter-view p {
+  margin: 0;
+  padding: 10px;
+  font-size: 14px;
+  line-height: 1.4;
+  margin-left: 3px;
+}
+.parameter-view strong {
+  color: #cbd5e1;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+body.gray-mode .parameter-view strong {
+  color: #1e293b;
+}
+.parameter-view .param-value {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* ===================== [버튼 크기 & 강조] ===================== */
+#resetZoom1,
+#resetZoom2 {
+  font-size: 12px;
+}
+#applyStage,
+#saveY1,
+#saveY2,
+#saveYt {
+  font-weight: 600;
+}
+
+
+/* ===================== [README 버튼 영역] ===================== */
+.readme-btn {
+  margin-left: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);   /* 얇은 1px 테두리 */
+  border-radius: 12px;
+  background-color: transparent;     /* 배경 투명 */
+  color: var(--text);                /* 글자색은 테마 색상 */
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+/* Dark Mode hover → 반전 */
+body:not(.gray-mode) .readme-btn:hover {
+  background-color: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+/* Gray Mode hover → 은은한 회색 강조 */
+body.gray-mode .readme-btn:hover {
+  background-color: #cbd5e1;   /* Gray-300 느낌 */
+  color: var(--text);          /* 글씨는 그대로 테마 색 */
+  border-color: #cbd5e1;
+}
+
+
+
+
+
+/* ===================== [README 모달 화면] ===================== */
+.modal {
+  display: none; /* 기본은 숨김 */
+  position: fixed;
+  z-index: 9999;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+  background: var(--panel);
+  margin: 10% auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  max-width: 82vh;
+  max-height: 70vh;   /* 화면 높이의 80%까지만 */
+  overflow-y: auto;   /* 내용이 넘치면 내부 스크롤 */
+  border-radius: 12px;
+  color: var(--text);
+}
+
+.close-btn {
+  float: right;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.modal-content ul li {
+  margin-bottom: 14px;
+}
+
+.modal-content ol li {
+    margin-bottom: 12px;
+    padding: 12px;
+}
+.modal-content p {
+    margin-top: 30px;
+}
+
+/* 모달 내부 스크롤바 스타일 */
+.modal-content::-webkit-scrollbar {
+  width: 10px;   /* 스크롤바 폭 */
+}
+
+.modal-content::-webkit-scrollbar-track {
+  background: var(--panel);   /* 모달 배경색과 동일 */
+  border-radius: 8px;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+  background: var(--border);  /* 테마 border 색상 */
+  border-radius: 8px;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+  background: #4b5563; /* hover 시 조금 더 진한 색 (예: slate-600) */
+}

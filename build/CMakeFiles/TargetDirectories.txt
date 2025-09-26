@@ -1,0 +1,5 @@
+C:/Users/Aim/Documents/GitHub/Zedboard-Zynq-7000/build/CMakeFiles/zedBoard.dir
+C:/Users/Aim/Documents/GitHub/Zedboard-Zynq-7000/build/CMakeFiles/iio_reader.dir
+C:/Users/Aim/Documents/GitHub/Zedboard-Zynq-7000/build/CMakeFiles/iio_reader_test.dir
+C:/Users/Aim/Documents/GitHub/Zedboard-Zynq-7000/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Aim/Documents/GitHub/Zedboard-Zynq-7000/build/CMakeFiles/ZERO_CHECK.dir

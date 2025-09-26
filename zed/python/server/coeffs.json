@@ -1,9 +1,15 @@
 {
   "lpf_cutoff_hz": 5000.0,
   "lpf_order": 4,
+<<<<<<< Updated upstream
   "movavg_ch": 8,
   "movavg_r": 4,
   "target_rate_hz": 100.0,
+=======
+  "movavg_ch_sec": 0.001,
+  "movavg_r_sec": 0.5,
+  "target_rate_hz": 10.0,
+>>>>>>> Stashed changes
   "derived": "yt",
   "out_ch": 0,
   "alpha": 1.0,
