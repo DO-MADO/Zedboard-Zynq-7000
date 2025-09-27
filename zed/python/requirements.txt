@@ -10,3 +10,8 @@ fastapi.responses
 fastapi.staticfiles
 pydantic
 uvicorn
+asyncio
+json
+struct
+subprocess
+threading

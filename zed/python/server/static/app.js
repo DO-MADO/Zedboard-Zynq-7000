@@ -17,7 +17,7 @@ import zoomPlugin from 'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/+
 Chart.register(zoomPlugin);
 
 // ✅ 차트에 표시할 최대 데이터 포인트 수 (메모리 관리)
-const MAX_DATA_POINTS = 5000; 
+const MAX_DATA_POINTS = 1000; 
 
 
 // ============================================================
@@ -722,72 +722,36 @@ async function fetchParams() {
  * 파라미터 객체를 UI 입력 요소와 paramsView에 반영
  * @param {Object} p - 파라미터 객체
  */
+
+// [PATCH] 안전 헬퍼
+function _num(v, def) { return (typeof v === 'number' && !Number.isNaN(v)) ? v : def; }
+
+// [REPLACE] applyParamsToUI
 function applyParamsToUI(p) {
-  // ----- 공통 슬라이더/숫자 입력 동기화 -----
-  if (lpf)      lpf.value      = p.lpf_cutoff_hz;
-  if (lpfNum)   lpfNum.value   = p.lpf_cutoff_hz;
-  if (maCh)     maCh.value     = p.movavg_ch_sec;
-  if (maChNum)  maChNum.value  = p.movavg_ch_sec;
-  if (maR)      maR.value      = p.movavg_r_sec;
-  if (maRNum)   maRNum.value   = p.movavg_r_sec;
-  if (tRate)    tRate.value    = p.target_rate_hz;
-  if (tRateNum) tRateNum.value = p.target_rate_hz;
+  // 서버가 보장하는 최소 필드만 사용
+  const fs  = _num(p.sampling_frequency, 1_000_000);  // Hz
+  const bs  = _num(p.block_samples, 16384);
+  const tr  = _num(p.target_rate_hz, 10);             // S/s
 
-  // S/s 단위 → kS/s 변환
-  if (fsRate)    fsRate.value    = p.sampling_frequency / 1000;
-  if (fsRateNum) fsRateNum.value = p.sampling_frequency / 1000;
+  // 표시용 컨트롤(실제 반영 X)
+  if (fsRate)    fsRate.value    = (fs/1000).toFixed(0);
+  if (fsRateNum) fsRateNum.value = (fs/1000).toFixed(0);
+  if (blockSize) blockSize.value    = bs;
+  if (blockSizeNum) blockSizeNum.value = bs;
+  if (tRate)     tRate.value     = tr;
+  if (tRateNum)  tRateNum.value  = tr;
 
-  // Block Size (없으면 기본값 16384)
-  if (blockSize)    blockSize.value    = p.block_samples ?? 16384;
-  if (blockSizeNum) blockSizeNum.value = p.block_samples ?? 16384;
+  // DSP 관련(표시만): 서버에는 없음 → N/A로 보여주기
+  if (lpf)     lpf.value = lpfNum?.value ?? '';
+  if (maCh)    maCh.value = maChNum?.value ?? '';
+  if (maR)     maR.value = maRNum?.value ?? '';
 
-  // ----- 계수 입력칸 값 설정 -----
-  const y1_den_val = Array.isArray(p.y1_den) ? p.y1_den
-                   : [0.0, 0.0, 0.0, 0.01, 0.05, 1.0];
-  if (y1c) y1c.value = y1_den_val.join(' , ');
-
-  const y2_coeffs_val = Array.isArray(p.y2_coeffs) ? p.y2_coeffs
-                      : [0.0, 0.0, 0.0, -0.01, 0.90, 0.0];
-  if (y2c) y2c.value = y2_coeffs_val.join(' , ');
-
-  const y3_coeffs_val = Array.isArray(p.y3_coeffs) ? p.y3_coeffs
-                      : [0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
-  if (y3c) y3c.value = y3_coeffs_val.join(' , ');
-
-  const yt_coeffs_val = (typeof p.E === 'number' && typeof p.F === 'number')
-                      ? [p.E, p.F] : [1.0, 0.0];
-  if (ytc) ytc.value = yt_coeffs_val.join(' , ');
-
-  // ----- paramsView 갱신 (요약 표시) -----
+  // 우측 하단 파라미터 뷰
   if (paramsView) {
-  paramsView.innerHTML = `
-    <p><strong>LPF Cutoff(저역통과 필터 설정값)</strong> :
-       <span class="param-value">${p.lpf_cutoff_hz} Hz</span></p>
-    <p><strong>CH Moving Avg(채널 이동 평균 윈도우 크기)</strong> :
-       <span class="param-value">${p.movavg_ch_sec}</span></p>
-    <p><strong>R Moving Avg(R 이동 평균 윈도우 크기)</strong> :
-       <span class="param-value">${p.movavg_r_sec}</span></p>
-    <p><strong>Target Rate(출력 속도, 시간평균 후 UI 표시 속도)</strong> :
-       <span class="param-value">${p.target_rate_hz} S/s</span></p>
-    <p><strong>Sampling Frequency(하드웨어 ADC 속도)</strong> :
-       <span class="param-value">${p.sampling_frequency}</span></p>
-    <p><strong>Block Size(샘플 개수)</strong> :
-       <span class="param-value">${p.block_samples}</span></p>   
-    <p><strong>y1 Denominator Coeffs(y1 분모 계수)</strong> :
-       <span class="param-value">[${y1_den_val.join(' , ')}]</span></p>
-    <p><strong>y2 Coefficients(y2 보정 계수)</strong> :
-       <span class="param-value">[${y2_coeffs_val.join(' , ')}]</span></p>
-    <p><strong>y3 Coefficients(y3 보정 계수)</strong> :
-       <span class="param-value">[${y3_coeffs_val.join(' , ')}]</span></p>
-    <p><strong>yt Coefficients(yt 스케일 계수)</strong> :
-       <span class="param-value">[${yt_coeffs_val.join(' , ')}]</span></p>
-     
-    <medium style="color: #347dd6ff; display: block; margin-top: 14px; margin-left: 10px; line-height: 2.2; font-style: italic;">
-      ※ <b>Hardware Sampling Rate</b>은 ADC가 <u>실제 데이터를 샘플링(수집)</u>하는 속도,<br>
-      ※ <b>Target Rate</b>은 <u>샘플링된 데이터를 시간 평균 처리</u>한 뒤 최종적으로 출력 되는 속도.<br>
-      ※ y1 계산 시 분자는 <b>Ravg</b> 값으로 고정되며, <b>분모 계수만</b> 수정됩니다.
-    </medium>
-  `;
+    paramsView.textContent =
+      `Sampling: ${ (fs>=1e6)?(fs/1e6).toFixed(1)+' MS/s':(fs/1e3).toFixed(1)+' kS/s' }  |  `
+      + `Block: ${bs} samples  |  Target rate: ${tr} S/s  `
+      + `|  (DSP: C에서 계산, UI는 표시만)`;
   }
 }
 
@@ -805,15 +769,12 @@ async function postParams(diff) {
   applyParamsToUI(j.params);
 }
 
-// --- "적용" 버튼 클릭 시 파라미터 전송 ---
+// [REPLACE] "적용" 버튼 핸들러
 document.getElementById('apply')?.addEventListener('click', () => {
   postParams({
     sampling_frequency: parseFloat(fsRateNum.value) * 1000, // kS/s → S/s
-    lpf_cutoff_hz: parseFloat(lpfNum.value),
-    movavg_ch_sec:     parseFloat(maChNum.value),
-    movavg_r_sec:      parseFloat(maRNum.value),
-    target_rate_hz: parseFloat(tRateNum.value),
-    block_samples: parseInt(blockSizeNum.value),
+    block_samples: parseInt(blockSizeNum.value, 10),
+    target_rate_hz: parseFloat(tRateNum.value)
   });
 });
 
@@ -824,21 +785,23 @@ function parseCoeffs(txt) {
             .filter(v => !Number.isNaN(v));
 }
 
+// [REPLACE] parseCoeffsN
 function parseCoeffsN(txt, n=6, fill=0) {
   const v = parseCoeffs(txt);
-  if (v.length < n) v.push(...Array(n - v.length).fill(fill));
-  else if (v.length > n) v.length = n;
+  while (v.length < n) v.push(fill);
+  if (v.length > n) v.length = n;
   return v;
 }
 
 // --- 계수 저장 버튼 이벤트 ---
-saveY1?.addEventListener('click', () => postParams({ y1_den: parseCoeffs(y1c.value) }));
-saveY2?.addEventListener('click', () => postParams({ y2_coeffs: parseCoeffs(y2c.value) }));
-saveY3?.addEventListener('click', () => postParams({ y3_coeffs: parseCoeffs(y3c.value) }));
-saveYt?.addEventListener('click', () => {
-  const [E, F] = parseCoeffs(ytc.value);
-  postParams({ E, F });
-});
+function _info(msg){ alert(msg); }
+
+saveY1?.addEventListener('click', () => _info('C-DSP 모드: 계수는 C(iio_reader)에서 고정됩니다.'));
+saveY2?.addEventListener('click', () => _info('C-DSP 모드: 계수는 C(iio_reader)에서 고정됩니다.'));
+saveY3?.addEventListener('click', () => _info('C-DSP 모드: 계수는 C(iio_reader)에서 고정됩니다.'));
+saveYt?.addEventListener('click', () => _info('C-DSP 모드: 계수는 C(iio_reader)에서 고정됩니다.'));
+
+
 
 // ‼️ 성능 데이터를 UI에 업데이트하는 새 함수를 추가합니다.
 /**
@@ -895,7 +858,6 @@ function connectWS() {
   ws = new WebSocket(url);
 
   ws.onopen = () => {
-    // 필요시 핑/초기 메시지 등 넣기
     // console.log('[WS] connected');
   };
 
@@ -903,45 +865,67 @@ function connectWS() {
     try {
       const m = JSON.parse(ev.data);
 
+      // ---- 파라미터 반영 ----
       if (m.type === 'params') {
-        // 파라미터 갱신
         applyParamsToUI(m.data);
         return;
       }
 
+      // ---- 프레임 수신 ----
       if (m.type === 'frame') {
-        // 1) 원신호(멀티채널) 블록
-        const y_block = m.y_block; // shape: [samples][channels]
-        // 2) Ravg 블록 (옵션)
-        const ravg_block = m.ravg_signals ? m.ravg_signals.series : []; // shape: [channels][samples]
+        // 방호: 최소 스키마/값 체크
+        const tRate = Number(m?.params?.target_rate_hz);
+        const dt = (Number.isFinite(tRate) && tRate > 0) ? (1.0 / tRate) : null;
 
-        if (y_block && y_block.length > 0) {
-          const n_new = y_block.length;
-          const dt = 1.0 / m.params.target_rate_hz; // 예: 0.1s
+        // 1) 원신호(멀티채널) 블록: [samples][channels]
+        const y_block = Array.isArray(m.y_block) ? m.y_block : null;
 
-          // --- Figure1 시간 업데이트 (독립) ---
-          const new_times1 = Array.from({ length: n_new }, (_, i) => lastTimeX1 + (i + 1) * dt);
+        // 2) Ravg 블록(옵션): [channels][samples]
+        const ravg_block = (m.ravg_signals && Array.isArray(m.ravg_signals.series))
+          ? m.ravg_signals.series
+          : null;
+
+        // --- Figure1: y_block 누적 ---
+        if (y_block && y_block.length > 0 && dt !== null) {
+          const n1 = y_block.length; // samples for fig1
+          const new_times1 = Array.from({ length: n1 }, (_, i) => lastTimeX1 + (i + 1) * dt);
           lastTimeX1 = new_times1[new_times1.length - 1];
-          appendDataToChart(fig1, new_times1, y_block);
 
-          // --- Figure3 시간 업데이트 (독립) ---
-          if (Array.isArray(ravg_block) && ravg_block.length > 0) {
-            // [ch][sample] → [sample][ch]
-            const ravg_transposed = ravg_block[0].map((_, colIdx) => ravg_block.map(row => row[colIdx]));
-            const new_times3 = Array.from({ length: n_new }, (_, i) => lastTimeX3 + (i + 1) * dt);
+          // 기존 로직: y_block 그대로 [samples][ch]를 append
+          appendDataToChart(fig1, new_times1, y_block);
+        }
+        // else: 빈 배열/누락/잘못된 dt면 스킵 (깜빡임/예외 방지)
+
+        // --- Figure3: ravg(series) 누적 ---
+        if (ravg_block && ravg_block.length > 0 && dt !== null) {
+          // [ch][sample] → [sample][ch] 전치
+          const chCount = ravg_block.length;
+          const sampleCount = Array.isArray(ravg_block[0]) ? ravg_block[0].length : 0;
+
+          if (sampleCount > 0) {
+            const ravg_transposed = Array.from({ length: sampleCount }, (_, s) =>
+              Array.from({ length: chCount }, (_, c) => ravg_block[c][s])
+            );
+
+            const n3 = sampleCount; // samples for fig3 (ravg 기준)
+            const new_times3 = Array.from({ length: n3 }, (_, i) => lastTimeX3 + (i + 1) * dt);
             lastTimeX3 = new_times3[new_times3.length - 1];
+
             appendDataToChart(fig3, new_times3, ravg_transposed);
           }
         }
 
-        // 4ch 파생(덮어쓰기) 차트
-        if (m.derived) {
-          setFig2Multi(m.derived);
+        // --- Figure2: 4ch 파생(덮어쓰기) ---
+        if (m.derived && Array.isArray(m.derived.series) && m.derived.series.length > 0) {
+          setFig2Multi(m.derived); // 덮어쓰기 동작
         }
-        // frame 메시지에 stats 객체가 있으면 헤더 UI를 업데이트합니다.
+
+        // --- stats 표시(옵션) ---
         if (m.stats) {
           updateStatsDisplay(m.stats);
         }
+
+        return; // frame 처리 종료
       }
     } catch (e) {
       console.error('WebSocket message parse error', e);
@@ -969,14 +953,11 @@ function connectWS() {
 
 resetParamsBtn?.addEventListener('click', async () => {
   try {
-    // 서버에 "파라미터 초기화" 요청 보내기
     const r = await fetch('/api/params/reset', { method: 'POST' });
     const j = await r.json();
 
-    // 서버가 새 파라미터를 반환하면 UI 반영
     if (j && j.params) applyParamsToUI(j.params);
   } catch (e) {
-    // 에러 발생 시 콘솔에 출력
     console.error(e);
   }
 });
@@ -989,11 +970,7 @@ resetParamsBtn?.addEventListener('click', async () => {
 //  - fetchParams(): 서버에서 최신 파라미터를 가져와 UI에 초기 반영
 // ============================================================
 
-// WebSocket 연결 (실시간 데이터 스트리밍)
-connectWS();
-
-// 서버에서 파라미터 fetch → UI에 표시
-fetchParams();
-
-setupYAxisControls(); // ✅ 추가
-setupDataResetButtons(); // ✅ 추가
+connectWS();        // WebSocket 연결 (실시간 데이터 스트리밍)
+fetchParams();      // 서버에서 파라미터 fetch → UI에 표시
+setupYAxisControls();      // ✅ 추가
+setupDataResetButtons();   // ✅ 추가
