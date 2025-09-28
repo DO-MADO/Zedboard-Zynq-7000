@@ -86,18 +86,36 @@ static inline double polyval_f64(const double* c, int len, double x) {
 static void moving_average_f32(const float* in, float* out, int len, int N) {
     if (N <= 1) { memcpy(out, in, (size_t)len * sizeof(float)); return; }
     const int half = N / 2;
+
+    // 누적합 버퍼 (double 권장: 누적 오차↓)
+    static double* psum = NULL;
+    static int cap = 0;
+    const int need = len + 1;
+    if (cap < need) {
+        free(psum);
+        cap = need;
+        psum = (double*)malloc((size_t)cap * sizeof(double));
+        if (!psum) { // 메모리 부족 시 안전하게 원본 복사
+            memcpy(out, in, (size_t)len * sizeof(float));
+            return;
+        }
+    }
+
+    // psum[i] = in[0] + ... + in[i-1], psum[0] = 0
+    psum[0] = 0.0;
+    for (int i = 0; i < len; i++) psum[i + 1] = psum[i] + (double)in[i];
+
     for (int i = 0; i < len; i++) {
         int start = i - half;
         int end   = i + (N - 1 - half);
         if (start < 0) start = 0;
         if (end >= len) end = len - 1;
-        double acc = 0.0;
-        int cnt = end - start + 1;
-        const float* p = in + start;
-        for (int j = 0; j < cnt; j++) acc += p[j];
-        out[i] = (float)(acc / (double)cnt);
+        const int cnt = end - start + 1;
+        const double sum = psum[end + 1] - psum[start];
+        out[i] = (float)(sum / (double)cnt);
     }
 }
+
 
 // SOS DF2T in-place for single channel buffer x[len]
 // state: [n_sections*2]
@@ -119,30 +137,36 @@ static void sos_df2t_inplace(float* x, int len, const double sos[][6], int n_sec
 }
 
 int main(int argc, char **argv) {
-    // ---------- CLI ----------
-    const char *ip = "192.168.1.133";
-    int block_samples = 16384;
+    // ❗ [최종 수정] ---------- CLI (명령줄 인자 처리) ----------
+    // Python에서 보내는 6개의 핵심 파라미터를 인자로 받습니다.
+    if (argc < 8) { // ❗ 인자 개수 8개로 수정
+        fprintf(stderr, "Usage: %s <ip> <block> <fs> <target_rate> <lpf_cutoff> <movavg_r> <movavg_ch>\n", argv[0]);
+        return 1;
+    }
+    const char *ip = argv[1];
+    int block_samples = atoi(argv[2]);
+    long long sampling_freq = atoll(argv[3]);
+    double target_rate_hz = atof(argv[4]);
+    double lpf_cutoff_hz = atof(argv[5]);
+    int movavg_r = atoi(argv[6]);
+    int movavg_ch = atoi(argv[7]); // ❗ CH MA(Smoothing) 인자 추가
     const char *dev_name = "ad4858";
-    long long sampling_freq = 1000000;
-
-    if (argc > 1 && argv[1] && argv[1][0]) ip = argv[1];
-    if (argc > 2) { int v = atoi(argv[2]); if (v > 0) block_samples = v; }
-    if (argc > 4) { long long fs = atoll(argv[4]); if (fs > 0) sampling_freq = fs; }
 
 #ifdef _WIN32
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
-    // ---------- Parameters ----------
+    // ❗ [최종 수정] ---------- Parameters (하드코딩 대신 인자값 사용) ----------
     SignalParams P = {0};
     P.sampling_frequency = (double)sampling_freq;
-    P.target_rate_hz     = 1000.0;
-    P.lpf_cutoff_hz      = 2500.0;
-    P.lpf_order          = 4;
-    P.movavg_r           = 5;
+    P.target_rate_hz     = target_rate_hz;
+    P.lpf_cutoff_hz      = lpf_cutoff_hz;
+    P.movavg_r           = movavg_r;
+    P.lpf_order          = 4; // LPF 차수는 4차로 고정
+
+    // 나머지 계수들은 C 코드에 고정 (이 값들은 UI와 연동하지 않음)
     P.alpha=1.0; P.beta=1.0; P.gamma=1.0; P.k=10.0; P.b=0.0;
-    P.y1_num[0]=1.0; P.y1_num[1]=0.0; P.y1_num_len=2;
-    P.y1_den[5]=1.0; P.y1_den_len=6;    // example: 1/r^5
+    P.y1_den[5]=1.0; P.y1_den_len=6;
     P.y2_coeffs[4]=1.0; P.y2_coeffs_len=6;
     P.y3_coeffs[4]=1.0; P.y3_coeffs_len=6;
     P.E=1.0; P.F=0.0;
@@ -191,12 +215,10 @@ int main(int argc, char **argv) {
     if (!buf) { fprintf(stderr, "ERR: create buffer\n"); free(in_ch); free(scales); iio_context_destroy(ctx); return 6; }
 
     // ---------- DSP coeffs (SOS) & state ----------
-    const int n_sections = 4;
-    const double sos[4][6] = {
-        {2.43319e-09, 4.86638e-09, 2.43319e-09, 1.0, -3.95991845, 5.88242491},
-        {1.0, 2.0, 1.0, 1.0, -3.96205933, 5.88825832},
-        {1.0, 2.0, 1.0, 1.0, -3.97824127, 5.93489849},
-        {1.0, 2.0, 1.0, 1.0, -3.99042129, 5.97136009}
+    const int n_sections = 2; // ❗ 4를 2로 수정
+    const double sos[2][6] = { // ❗ 4를 2로 수정하고, 아래 값을 붙여넣기
+        {3.728052e-09, 7.456103e-09, 3.728052e-09, 1.000000e+00, -1.971149e+00, 9.713918e-01},
+        {1.000000e+00, 2.000000e+00, 1.000000e+00, 1.000000e+00, -1.987805e+00, 9.880500e-01},
     };
 
     ProcessingState S = (ProcessingState){0};
@@ -212,6 +234,7 @@ int main(int argc, char **argv) {
     // ---------- Pre-allocate working buffers (no alloc in loop) ----------
     float *raw_f32  = (float*)malloc(sizeof(float) * (size_t)block_samples * (size_t)n_in);
     float *lpf_f32  = (float*)malloc(sizeof(float) * (size_t)block_samples * (size_t)n_in);
+    float *ma_ch_out = (float*)malloc(sizeof(float) * (size_t)block_samples * (size_t)n_in); // ❗ CH MA 결과 버퍼 추가
     float *chan_buf = (float*)malloc(sizeof(float) * (size_t)block_samples);
 
     const int max_ta_out = block_samples / decim + 2;
@@ -258,11 +281,24 @@ int main(int argc, char **argv) {
         }
 
         // 2) LPF per channel (in-place over chan_buf) → lpf_f32
+        memcpy(lpf_f32, raw_f32, sizeof(float) * (size_t)block_samples * (size_t)n_in);
+
+         for (int c = 0; c < n_ch; c++) {
+             const float *src = raw_f32 + (size_t)c;
+             for (int i = 0; i < block_samples; i++) chan_buf[i] = src[(size_t)i * (size_t)n_in];
+             sos_df2t_inplace(chan_buf, block_samples, sos, n_sections, S.lpf_state + (size_t)c * (size_t)(n_sections*2));
+             float *dst = lpf_f32 + (size_t)c;
+             for (int i = 0; i < block_samples; i++) dst[(size_t)i * (size_t)n_in] = chan_buf[i];
+         }
+
+        // ❗ [추가] 2-2) Smoothing Filter (CH Moving Average) per channel
         for (int c = 0; c < n_ch; c++) {
-            const float *src = raw_f32 + (size_t)c;
+            const float *src = lpf_f32 + (size_t)c;
             for (int i = 0; i < block_samples; i++) chan_buf[i] = src[(size_t)i * (size_t)n_in];
-            sos_df2t_inplace(chan_buf, block_samples, sos, n_sections, S.lpf_state + (size_t)c * (size_t)(n_sections*2));
-            float *dst = lpf_f32 + (size_t)c;
+            
+            moving_average_f32(chan_buf, chan_buf, block_samples, movavg_ch); // ❗ 이동 평균 적용
+            
+            float *dst = ma_ch_out + (size_t)c;
             for (int i = 0; i < block_samples; i++) dst[(size_t)i * (size_t)n_in] = chan_buf[i];
         }
 
@@ -272,7 +308,7 @@ int main(int argc, char **argv) {
             memcpy(ta_combined, S.avg_tail, (size_t)S.avg_tail_len * (size_t)n_ch * sizeof(float));
         }
         memcpy(ta_combined + (size_t)S.avg_tail_len * (size_t)n_ch,
-               lpf_f32, (size_t)block_samples * (size_t)n_ch * sizeof(float));
+               ma_ch_out, (size_t)block_samples * (size_t)n_ch * sizeof(float));
 
         const int n_ta = total / decim;
         const int rem  = total % decim;

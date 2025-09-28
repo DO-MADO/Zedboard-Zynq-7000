@@ -133,6 +133,11 @@ input[type="text"] {
   width: 100%;
 }
 
+.chart-container.large {
+  height: 650px;
+  width: 100%;
+}
+
 /* ===================== [푸터] ===================== */
 footer {
   text-align: center;
@@ -400,4 +405,106 @@ footer {
 .stats-display .separator {
   color: #5a5b64; /* 구분자(|) 색상 */
   font-weight: normal;
+}
+
+/* 값(숫자+단위) 강조색 */
+  .param-value {
+    color: rgb(96, 165, 250); /* 원하는 색상 */
+    font-weight: 600;         /* 살짝 굵게(선택) */
+  }
+
+
+/* ===================== [보기 모드 탭 바 스타일] ===================== */
+.view-mode-bar {
+  display: flex;
+  border-radius: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+}
+
+.view-mode-btn {
+  /* flex: 1; <-- 이 한 줄을 삭제하거나 주석 처리합니다. */
+  background: none;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  text-align: center;
+}
+
+/* 마우스를 올렸을 때 효과 */
+.view-mode-btn:not(.active):hover {
+  background-color: var(--panel-hover);
+  color: var(--text);
+}
+
+/* 선택된(활성화된) 버튼 스타일 */
+.view-mode-btn.active {
+  background-color: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+
+#fig3-section h2,
+#fig3-section .controls,
+#fig3-section .toolbar,
+#fig3-section .parameter-view {
+margin-left: 16px;  
+margin-top: 16px;
+}
+
+
+/* ===================== [4ch 탭 리팩토링 스타일] ===================== */
+
+/* 'All' 뷰의 2x2 그리드 컨테이너 */
+#fig2GridContainer {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 16px;
+  height: 650px;
+  width: 100%;
+}
+
+/* 개별 차트를 감싸는 래퍼 */
+.yt-chart-wrapper {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background-color: #232429; /* 살짝 다른 배경색으로 구분 */
+  min-width: 0; /* 그리드 내부 요소가 넘치는 것을 방지 */
+}
+
+/* 래퍼 안의 차트 컨테이너가 남은 공간을 모두 차지하도록 설정 */
+.yt-chart-wrapper .chart-container {
+  flex-grow: 1;
+}
+
+/* 래퍼 안의 툴바에 표시될 차트 제목 */
+.yt-chart-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-left: 8px;
+}
+
+/* 단일 뷰 모드일 때 그리드 컨테이너의 스타일 */
+#fig2GridContainer.single-view {
+  display: block; /* 그리드에서 블록으로 변경 */
+  height: auto; /* 높이를 자동으로 조절 */
+}
+
+/* 단일 뷰 모드에서, 선택된 차트(.visible)를 제외한 나머지는 숨김 */
+#fig2GridContainer.single-view .yt-chart-wrapper:not(.visible) {
+  display: none;
+}
+
+/* 단일 뷰에서 선택된 차트의 컨테이너 높이를 크게 설정 */
+#fig2GridContainer.single-view .yt-chart-wrapper.visible .chart-container {
+  height: 600px;
 }

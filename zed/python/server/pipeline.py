@@ -14,7 +14,7 @@ import subprocess
 import threading
 import time
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field 
 from typing import Callable, Optional, List, Dict, Tuple
 
 import numpy as np
@@ -56,67 +56,80 @@ class SourceBase:
 
 
 # -----------------------------
-# [2] CProcSource — 3스트림(frame_type) 파서 (B안)
+# [2] CProcSource — C 프로그램 실행 및 데이터 파싱
 # -----------------------------
 class CProcSource(SourceBase):
+    """
+    iio_reader.c 프로세스를 실행하고, 표준 출력(stdout)으로 나오는
+    데이터 스트림을 파싱하여 프레임 단위로 반환합니다.
+    """
     FT_STAGE3 = 0x01  # 8ch (Stage3: 시간평균까지 끝난 원신호 블록)
     FT_STAGE5 = 0x02  # 4ch Ravg (Stage5)
     FT_YT     = 0x03  # 4ch 최종 yt
 
-    def __init__(self, exe_path: str, ip: str, block_samples: int, fs_hz: float):
-        """
-        iio_reader 인자 규약: [ip, block_samples, 0, sampling_frequency]
-        """
-        self.block = int(block_samples)
-        self.fs_hz = float(fs_hz)
+    def __init__(self, params: PipelineParams):
+        # ❗ [최종 수정] C 프로그램에 전달할 6개 핵심 파라미터를 리스트로 구성
+        args = [
+            params.exe_path,
+            params.ip,
+            str(params.block_samples),
+            str(int(params.sampling_frequency)),
+            str(params.target_rate_hz),
+            str(params.lpf_cutoff_hz),
+            str(params.movavg_r),
+            str(params.movavg_ch), # ❗ CH MA 인자 추가
+        ]
 
-        # C 리더 실행
+        # C 리더(iio_reader.exe)를 실행
         self.proc = subprocess.Popen(
-            [exe_path, ip, str(self.block), "0", str(int(self.fs_hz))],
+            args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        if not self.proc.stdout:
-            raise RuntimeError("CProc stdout is not available")
-        self._stdout = self.proc.stdout
 
-        # 1B frame_type + <II>(n_samp, n_ch)
+        # 표준 출력이 정상적으로 연결되었는지 확인합니다.
+        if not self.proc.stdout:
+            raise RuntimeError("CProcSource: C process stdout is not available.")
+        self._stdout = self.proc.stdout
         self._hdr_struct = struct.Struct("<BII")
 
-    # --- 내부 유틸 ---
 
     def _read_exact(self, n: int) -> bytes:
-        """정확히 n바이트를 읽을 때까지 블록."""
+        """
+        C 프로세스의 표준 출력에서 정확히 n 바이트를 읽어올 때까지 기다립니다.
+        """
         buf = bytearray()
-        read = buf.extend
         while len(buf) < n:
             chunk = self._stdout.read(n - len(buf))
             if not chunk:
-                raise EOFError("CProcSource: unexpected EOF while reading")
-            read(chunk)
+                # C 프로세스가 예기치 않게 종료되면 에러를 발생시킵니다.
+                stderr_output = self.proc.stderr.read().decode(errors='ignore')
+                raise EOFError(f"CProcSource: unexpected EOF. Stderr: {stderr_output}")
+            buf.extend(chunk)
         return bytes(buf)
-
-    # --- 파이프라인이 호출하는 공개 API ---
 
     def read_frame(self) -> Tuple[int, np.ndarray]:
         """
-        C가 내보내는 프레임을 그대로 읽어서 반환.
-        반환: (ftype, np.ndarray[n_samp, n_ch], float32)
+        하나의 데이터 프레임(헤더 + 페이로드)을 읽고 파싱하여 반환합니다.
+        이 함수가 Pipeline의 메인 루프에서 계속 호출됩니다.
         """
-        # 1) 헤더
-        hdr = self._read_exact(self._hdr_struct.size)
-        ftype, n_samp, n_ch = self._hdr_struct.unpack(hdr)
-        n_samp = int(n_samp)
-        n_ch   = int(n_ch)
+        # 1. 헤더(9바이트)를 먼저 읽습니다.
+        hdr_bytes = self._read_exact(self._hdr_struct.size)
+        ftype, n_samp, n_ch = self._hdr_struct.unpack(hdr_bytes)
 
-        # 2) 페이로드
-        n_floats = n_samp * n_ch
-        raw = self._read_exact(n_floats * 4)  # float32 bytes
-        arr = np.frombuffer(raw, dtype=np.float32).reshape(n_samp, n_ch)
+        # 2. 헤더에서 얻은 샘플/채널 수만큼 데이터 페이로드(float32 배열)를 읽습니다.
+        payload_bytes = self._read_exact(n_samp * n_ch * 4)
+        
+        # 3. 읽어온 바이트 데이터를 NumPy 배열로 변환합니다.
+        arr = np.frombuffer(payload_bytes, dtype=np.float32).reshape(n_samp, n_ch)
+        
         return int(ftype), arr
 
     def terminate(self):
+        """
+        파이프라인이 중지될 때 C 프로세스를 안전하게 종료시킵니다.
+        """
         try:
             self.proc.terminate()
         except Exception:
@@ -157,71 +170,72 @@ class SyntheticSource(SourceBase):
 
 
 # -----------------------------
-# [4] 파라미터 (표시/연동용 최소화)
+# [4] 파라미터 데이터 클래스 (최종 버전)
 # -----------------------------
 @dataclass
 class PipelineParams:
-    mode: str = "cproc"              # "cproc" | "synthetic"
-    exe_path: str = "./iio_reader"   # or iio_reader.exe
+    # 실행 파라미터
+    mode: str = "cproc"
+    exe_path: str = "iio_reader.exe"
     ip: str = "192.168.1.133"
     block_samples: int = 16384
-    sampling_frequency: int = 1_000_000
+    sampling_frequency: int = 100000
 
-    # 디스플레이/메타
-    target_rate_hz: float = 10.0                 # app.js dt 계산용
-    label_names: Optional[List[str]] = None      # 기본: ["yt0","yt1","yt2","yt3"]
-    log_csv_path: Optional[str] = None           # None이면 CSV 로깅 끔
-
+    # DSP 파라미터 (Configuration 탭 연동)
+    target_rate_hz: float = 10.0
+    lpf_cutoff_hz: float = 2500.0
+    movavg_ch: int = 1 # ❗ [추가] CH MA(Smoothing) 필드. 기본값 1은 사실상 기능 OFF.
+    movavg_r: int = 5
+    
+    # UI/메타 데이터
+    label_names: List[str] = field(default_factory=lambda: ["yt0", "yt1", "yt2", "yt3"])
+    log_csv_path: Optional[str] = None
+    
+    # 4ch 탭 연동용 계수들 (C 코드의 기본값과 일치시킴)
+    alpha: float = 1.0
+    k: float = 10.0
+    b: float = 0.0
+    y1_den: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+    y2_coeffs: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+    y3_coeffs: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+    E: float = 1.0
+    F: float = 0.0
 
 # -----------------------------
-# [5] 파이프라인 — 수신 → 브로드캐스트
+# [5] 파이프라인 클래스 (최종 수정 버전)
 # -----------------------------
 class Pipeline:
     """
-    C에서 3스트림(type 1/2/3)을 가져와 프론트가 기대하는 JSON으로 브로드캐스트.
-    - 계산 없음 / Pass-through only
-    - WebSocket 브로드캐스트는 app.py의 ws 루프가 처리
+    데이터 소스(C 또는 Synthetic)를 관리하고, 읽어온 데이터를 처리하여
+    등록된 모든 웹소켓 컨슈머에게 브로드캐스트하는 메인 컨트롤러.
     """
-
     def __init__(self, params: PipelineParams, broadcast_fn: Callable[[Dict], None]):
         self.params = params
-        self.broadcast_fn = broadcast_fn
+        self.broadcast_fn = broadcast_fn # app.py의 broadcast_fn을 직접 사용
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
-        # 소스 준비
+        # params.mode에 따라 데이터 소스(C 또는 Synthetic)를 결정
         if self.params.mode == "cproc":
-            self.src: SourceBase = CProcSource(
-                exe_path=self.params.exe_path,
-                ip=self.params.ip,
-                block_samples=self.params.block_samples,
-                fs_hz=self.params.sampling_frequency,
-            )
+            self.src: SourceBase = CProcSource(self.params)
         elif self.params.mode == "synthetic":
+            # SyntheticSource는 CProcSource와 달리 간단한 인자만 필요
             self.src = SyntheticSource(rate_hz=self.params.target_rate_hz)
         else:
             raise ValueError(f"Unknown mode: {self.params.mode}")
 
-        # 라벨
-        if not self.params.label_names:
-            self.params.label_names = [f"yt{k}" for k in range(4)]
-
-        # (옵션) CSV 로거
-        self._csv_fp = None
-        if self.params.log_csv_path:
-            self._csv_fp = open(self.params.log_csv_path, "a", buffering=1)  # line-buffered
-
-        # consumer 관리
+        # WebSocket 컨슈머(클라이언트) 목록 관리
         self._consumers: List[asyncio.Queue[str]] = []
         self._consumers_lock = threading.Lock()
 
-        # 성능/캐시
-        self._last_yt_time = None          # YT 프레임 간격으로 통계 산출
-        self._last_stats = None            # YT에서 계산한 통계(다음 stage3에 붙임)
-        self._last_ravg = None             # {"names":[...], "series":[ch][samples]}
-        self._last_yt   = None             # {"names":[...], "series":[4][samples]}
+        # 데이터 캐싱 및 성능 측정을 위한 변수 초기화
+        self._last_yt_time = None
+        self._last_stats = None
+        self._last_ravg = None
+        self._last_yt   = None
+        self._pending_stage3_block = None
+        self._pending_ts = None
 
-    # ----- Consumers -----
     def register_consumer(self) -> asyncio.Queue:
         q: asyncio.Queue[str] = asyncio.Queue(maxsize=2)
         with self._consumers_lock:
@@ -229,128 +243,77 @@ class Pipeline:
         return q
 
     def _broadcast(self, payload: dict):
-        safe = _json_safe(payload)
-        try:
-            text = json.dumps(safe, separators=(",", ":"), allow_nan=False)
-        except (ValueError, TypeError) as e:
-            # JSON에 실을 수 없는 값이 있다면 안전 로그 후 드롭
-            print(f"[pipeline] drop unsendable payload: {e}")
-            return
-        with self._consumers_lock:
-            for q in list(self._consumers):
-                try:
-                    if q.full():
-                        _ = q.get_nowait()
-                    q.put_nowait(text)
-                except Exception:
-                    pass
+        # 모든 컨슈머에게 JSON 메시지를 보내는 역할은 app.py가 담당
+        # 여기서는 broadcast_fn을 호출하기만 함 (현재는 사용되지 않음, app.py에서 직접 처리)
+        pass 
 
-    # ----- Lifecycle -----
     def start(self):
-        if self._thread and self._thread.is_alive():
-            return
+        if self._thread and self._thread.is_alive(): return
         self._thread = threading.Thread(target=self._run, name="PipelineThread", daemon=True)
         self._thread.start()
 
     def stop(self):
         self._stop.set()
-        try:
-            self.src.terminate()
-        except Exception:
-            pass
+        try: self.src.terminate()
+        except Exception: pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3.0)
-        if self._csv_fp:
-            self._csv_fp.close()
 
-    def restart(self, new_params: PipelineParams):
-        # 전체 재시작 (app.py에서 호출)
-        self.stop()
-        self.__init__(new_params, self.broadcast_fn)
-        self.start()
-
-    # ----- 내부 루프 -----
     def _run(self):
+        # (이전 답변에서 드린 최종 _run 메소드와 동일합니다)
         while not self._stop.is_set():
             try:
                 ftype, block = self.src.read_frame()
-            except EOFError:
-                break
+            except EOFError: break
             except Exception as e:
                 print(f"[pipeline] read_frame error: {e}")
                 break
 
-            if block.size == 0:
-                continue
-
-            n_samp, n_ch = block.shape
+            if block.size == 0: continue
             now = time.time()
+            n_samp, n_ch = block.shape
 
-            # (옵션) CSV 로깅 — 마지막 샘플만 요약 로그
-            if self._csv_fp:
-                ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
-                last_vals = [f"{block[-1, k]:.7g}" for k in range(min(n_ch, 8))]
-                self._csv_fp.write(",".join([ts_str, str(ftype)] + last_vals) + "\n")
-
-            # 프런트 규격에 맞게 전송 (묶음 브로드캐스트 전략)
             if ftype == CProcSource.FT_STAGE3:
-                # Stage3(8ch, 누적 플롯) + 캐시된 ravg/yt/stats를 함께 보냄
-                payload = {
-                    "type": "frame",
-                    "ts": now,
-                    "y_block": block.tolist(),            # [samples][8]
-                    "n_ch": int(n_ch),
-                    "block": {"n": int(n_samp)},
-                    "params": {
-                        "target_rate_hz": self.params.target_rate_hz,
-                        "sampling_frequency": self.params.sampling_frequency,
-                        "block_samples": self.params.block_samples
-                    },
-                }
-                if self._last_ravg is not None:
-                    payload["ravg_signals"] = self._last_ravg
-                if self._last_yt is not None:
-                    payload["derived"] = self._last_yt
-                if self._last_stats is not None:
-                    payload["stats"] = self._last_stats
-
-                self._broadcast(payload)
-
+                self._pending_stage3_block, self._pending_ts = block, now
             elif ftype == CProcSource.FT_STAGE5:
-                # Stage5(Ravg 4ch) — [ch][samples] 형태로 캐시에 저장만
                 series = [block[:, k].tolist() for k in range(min(4, n_ch))]
-                self._last_ravg = {
-                    "names": [f"Ravg{k}" for k in range(len(series))],
-                    "series": series
-                }
-                # (브로드캐스트하지 않음)
-
+                self._last_ravg = {"names": [f"Ravg{k}" for k in range(len(series))], "series": series}
             elif ftype == CProcSource.FT_YT:
-                # 최종 YT(4ch) — 캐시에 저장만 + 성능지표 계산
                 series = [block[:, k].tolist() for k in range(min(4, n_ch))]
-
+                self._last_yt = {"names": self.params.label_names[:len(series)], "series": series}
+                
                 stats = None
                 if self._last_yt_time is not None:
                     dt = max(1e-9, now - self._last_yt_time)
-                    actual_blocks_per_sec = 1.0 / dt
-                    actual_block_time_ms = dt * 1000.0
-                    proc_sps_per_ch = (n_samp / dt)
+                    proc_sps_per_ch = n_samp / dt
                     stats = {
                         "sampling_frequency": float(self.params.sampling_frequency),
                         "block_samples": int(self.params.block_samples),
-                        "actual_block_time_ms": float(actual_block_time_ms),
-                        "actual_blocks_per_sec": float(actual_blocks_per_sec),
+                        "actual_block_time_ms": float(dt * 1000.0),
+                        "actual_blocks_per_sec": float(1.0 / dt),
                         "actual_proc_kSps": float(proc_sps_per_ch / 1000.0),
+                        "actual_proc_Sps": float(proc_sps_per_ch),
                     }
                 self._last_yt_time = now
+                self._last_stats = stats
 
-                self._last_yt = {
-                    "names": self.params.label_names[:len(series)],
-                    "series": series
-                }
-                self._last_stats = stats  # 다음 stage3 payload에 붙임
-                # (브로드캐스트하지 않음)
-
-            else:
-                # 알 수 없는 타입 — 무시
-                continue
+                if self._pending_stage3_block is not None:
+                    payload = {
+                        "type": "frame", "ts": self._pending_ts,
+                        "y_block": self._pending_stage3_block.tolist(),
+                        "n_ch": int(self._pending_stage3_block.shape[1]),
+                        "block": {"n": int(self._pending_stage3_block.shape[0])},
+                        "params": {"target_rate_hz": self.params.target_rate_hz},
+                        "ravg_signals": self._last_ravg, "derived": self._last_yt, "stats": self._last_stats,
+                    }
+                    
+                    # ❗ app.py의 WebSocket 루프가 사용할 수 있도록 큐에 직접 삽입
+                    text = json.dumps(_json_safe(payload), separators=(",", ":"), allow_nan=False)
+                    with self._consumers_lock:
+                        for q in list(self._consumers):
+                            try:
+                                if q.full(): _ = q.get_nowait()
+                                q.put_nowait(text)
+                            except Exception: pass
+                    
+                    self._pending_stage3_block, self._pending_ts = None, None

@@ -1,239 +1,350 @@
 <!DOCTYPE html>
 <html lang="ko">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>신호 처리 보드</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-  <!-- ===================== [헤더 영역] ===================== -->
-  <header>
-    <div class="brand">
-      <img src="/static/img/logo.png" alt="로고" class="brand-logo">
-    </div>
-    <div class="header-controls">
-      <div id="statsDisplay" class="stats-display">
-        </div>
-    </div>
-  </header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>신호 처리 보드</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <img src="/static/img/logo.png" alt="로고" class="brand-logo" />
+      </div>
+      <div class="header-controls">
+        <div id="statsDisplay" class="stats-display"></div>
+      </div>
+    </header>
 
-  <!-- ===================== [메인 콘텐츠] ===================== -->
-  <main class="grid">
-    
-
-    <!-- ===================== [탭 버튼 영역] ===================== -->
-    <div class="tabs">
-      <button class="tab-btn" data-target="fig3-section">Configuration</button>
-      <button class="tab-btn active" data-target="fig1-section">Raw Data</button>
-      <button class="tab-btn" data-target="fig2-section">4ch</button>
-    </div>
-
-    <!-- ============================================================
-      [섹션 1: 8채널 실시간 차트]
-      - ADC 원신호(멀티채널) 실시간 표시
-      - 채널별 on/off 토글 + 줌/드래그 지원
-    ============================================================ -->
-    <section id="fig1-section" class="card tab-content active">
-      <!-- Stage3 -->
-      <h2>· Raw Data (~Stage3)</h2>
-      <div class="toolbar">
-        <div id="fig1Bar" class="legend-bar"></div>
-
-        <button id="dataReset1" class="btn">데이터 리셋</button>
-        <button id="resetZoom1" class="btn">Zoom 리셋</button>
-
-        <div style="flex-grow: 1;"></div>
-
-        <div class="yaxis-controls">
-          <label for="yMin1">Y축 Min:</label>
-          <input type="number" id="yMin1" class="yaxis-input" placeholder="Min">
-          <label for="yMax1">Max:</label>
-          <input type="number" id="yMax1" class="yaxis-input" placeholder="Max">
-          <button id="yApply1" class="btn">범위 적용</button>
-          <button id="yAuto1" class="btn">자동</button>
-        </div>
+    <main class="grid">
+      <div class="tabs">
+        <button class="tab-btn" data-target="fig3-section">
+          Configuration
+        </button>
+        <button class="tab-btn active" data-target="fig1-section">
+          Raw Data
+        </button>
+        <button class="tab-btn" data-target="fig2-section">4ch</button>
       </div>
 
-      <div class="chart-container">
-        <canvas id="fig1"></canvas>
-      </div>
-    
-
-      <!-- Stage5 -->
-      <h2 style="margin-top: 32px;">· Raw Data (~Stage5)</h2>
-
-      <div class="toolbar">
-        <div id="fig3Bar" class="legend-bar"></div>
-
-        <button id="dataReset3" class="btn">데이터 리셋</button>
-        <button id="resetZoom3" class="btn">Zoom 리셋</button>
-
-        <div style="flex-grow: 1;"></div>
-
-        <div class="yaxis-controls">
-          <label for="yMin3">Y축 Min:</label>
-          <input type="number" id="yMin3" class="yaxis-input" placeholder="Min">
-          <label for="yMax3">Max:</label>
-          <input type="number" id="yMax3" class="yaxis-input" placeholder="Max">
-          <button id="yApply3" class="btn">범위 적용</button>
-          <button id="yAuto3" class="btn">자동</button>
+      <section id="fig1-section" class="card tab-content active">
+        <div class="view-mode-bar">
+          <button class="view-mode-btn active" id="rawViewBothBtn">All</button>
+          <button class="view-mode-btn" id="rawViewS3Btn">Stage3</button>
+          <button class="view-mode-btn" id="rawViewS5Btn">Stage5</button>
         </div>
-      </div>
+        <div id="stage3Block">
+          <h2>· Raw Data (~Stage3)</h2>
+          <div class="toolbar">
+            <div id="fig1Bar" class="legend-bar"></div>
 
-      <div class="chart-container">
-         <canvas id="fig3"></canvas>
-      </div>
-    </section>
+            <button id="dataReset1" class="btn">데이터 리셋</button>
+            <button id="resetZoom1" class="btn">Zoom 리셋</button>
 
-    <!-- ============================================================
-      [섹션 2: 파생/보정 신호 + 계수 입력]
-      - y1, y2, y3, yt 계수값을 실시간 입력/저장 가능
-      - Derived/보정 신호 그래프 표시 + on/off 토글 지원
-      - 계수 변경 시 서버(postParams)로 전송 → 즉시 차트 업데이트
-    ============================================================ -->
-    <section id="fig2-section" class="card tab-content">
-      <h2>· 4ch</h2>
+            <div style="flex-grow: 1"></div>
 
-      <!-- --------------------- [계수 제어 UI] --------------------- -->
-      <div class="horizontal-controls">
-        <div class="control-group">
-          <label>단계</label>
-          <select id="stage">
-            <option value="yt" selected>yt</option>
-          </select>
+            <div class="yaxis-controls">
+              <label for="yMin1">Y축 Min:</label>
+              <input
+                type="number"
+                id="yMin1"
+                class="yaxis-input"
+                placeholder="Min"
+              />
+              <label for="yMax1">Max:</label>
+              <input
+                type="number"
+                id="yMax1"
+                class="yaxis-input"
+                placeholder="Max"
+              />
+              <button id="yApply1" class="btn">범위 적용</button>
+              <button id="yAuto1" class="btn">자동</button>
+            </div>
+          </div>
+
+          <div class="chart-container" id="stage3Container">
+            <canvas id="fig1"></canvas>
+          </div>
         </div>
+        <div id="stage5Block">
+          <h2>· Raw Data (~Stage5)</h2>
 
-        <div class="control-group">
-          <label>표시 모드</label>
-          <select id="multiSel">
-            <option value="yt_4">yt 4채널</option>
-          </select>
+          <div class="toolbar">
+            <div id="fig3Bar" class="legend-bar"></div>
+
+            <button id="dataReset3" class="btn">데이터 리셋</button>
+            <button id="resetZoom3" class="btn">Zoom 리셋</button>
+
+            <div style="flex-grow: 1"></div>
+
+            <div class="yaxis-controls">
+              <label for="yMin3">Y축 Min:</label>
+              <input
+                type="number"
+                id="yMin3"
+                class="yaxis-input"
+                placeholder="Min"
+              />
+              <label for="yMax3">Max:</label>
+              <input
+                type="number"
+                id="yMax3"
+                class="yaxis-input"
+                placeholder="Max"
+              />
+              <button id="yApply3" class="btn">범위 적용</button>
+              <button id="yAuto3" class="btn">자동</button>
+            </div>
+          </div>
+
+          <div class="chart-container" id="stage5Container">
+            <canvas id="fig3"></canvas>
+          </div>
         </div>
+        </section>
 
-        <div style="width: 16px"></div>
+      <section id="fig2-section" class="card tab-content">
+        <h2>· 4ch</h2>
 
-        <div class="control-group">
-          <label>y1 분모 계수 [a5,a4,a3,a2,a1,a0]</label>
-          <div class="coeffs">
-            <input id="y1c" type="text" value="0,1,0" />
-            <button class="btn" id="saveY1">적용</button>
+        <div class="horizontal-controls">
+          <div class="control-group">
+            <label>단계</label>
+            <select id="stage">
+              <option value="yt" selected>yt</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label>표시 모드</label>
+            <select id="multiSel">
+              <option value="yt_4">yt 4채널</option>
+            </select>
+          </div>
+
+          <div style="width: 16px"></div>
+
+          <div class="control-group">
+            <label>y1 분모 계수 [a5,a4,a3,a2,a1,a0]</label>
+            <div class="coeffs">
+              <input id="y1c" type="text" value="0,1,0" />
+              <button class="btn" id="saveY1">적용</button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>y2 계수 [b5,b4,b3,b2,b1,b0]</label>
+            <div class="coeffs">
+              <input id="y2c" type="text" value="0,0,0,-0.01,0.9,0" />
+              <button class="btn" id="saveY2">적용</button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>y3 계수 [c5,c4,c3,c2,c1,c0]</label>
+            <div class="coeffs">
+              <input id="y3c" type="text" value="0,1,0,0,0,0" />
+              <button class="btn" id="saveY3">적용</button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>yt 계수 [E,F]</label>
+            <div class="coeffs">
+              <input id="ytc" type="text" value="1,0" />
+              <button class="btn" id="saveYt">적용</button>
+            </div>
           </div>
         </div>
 
-        <div class="control-group">
-          <label>y2 계수 [b5,b4,b3,b2,b1,b0]</label>
-          <div class="coeffs">
-            <input id="y2c" type="text" value="0,0,0,-0.01,0.9,0" />
-            <button class="btn" id="saveY2">적용</button>
+        <div class="view-mode-bar" id="ytViewModeBar">
+          <button class="view-mode-btn active" data-yt-target="all">All</button>
+          <button class="view-mode-btn" data-yt-target="yt0">yt0</button>
+          <button class="view-mode-btn" data-yt-target="yt1">yt1</button>
+          <button class="view-mode-btn" data-yt-target="yt2">yt2</button>
+          <button class="view-mode-btn" data-yt-target="yt3">yt3</button>
+        </div>
+
+        <div id="fig2GridContainer">
+          <div class="yt-chart-wrapper" id="yt0Wrapper">
+            <div class="toolbar">
+              <span class="yt-chart-title">yt0</span>
+              <div style="flex-grow: 1"></div>
+              <button id="dataReset2_yt0" class="btn">데이터 리셋</button>
+              <button id="resetZoom2_yt0" class="btn">Zoom 리셋</button>
+            </div>
+            <div class="chart-container">
+              <canvas id="fig2_yt0"></canvas>
+            </div>
+          </div>
+
+          <div class="yt-chart-wrapper" id="yt1Wrapper">
+            <div class="toolbar">
+              <span class="yt-chart-title">yt1</span>
+              <div style="flex-grow: 1"></div>
+              <button id="dataReset2_yt1" class="btn">데이터 리셋</button>
+              <button id="resetZoom2_yt1" class="btn">Zoom 리셋</button>
+            </div>
+            <div class="chart-container">
+              <canvas id="fig2_yt1"></canvas>
+            </div>
+          </div>
+
+          <div class="yt-chart-wrapper" id="yt2Wrapper">
+            <div class="toolbar">
+              <span class="yt-chart-title">yt2</span>
+              <div style="flex-grow: 1"></div>
+              <button id="dataReset2_yt2" class="btn">데이터 리셋</button>
+              <button id="resetZoom2_yt2" class="btn">Zoom 리셋</button>
+            </div>
+            <div class="chart-container">
+              <canvas id="fig2_yt2"></canvas>
+            </div>
+          </div>
+
+          <div class="yt-chart-wrapper" id="yt3Wrapper">
+            <div class="toolbar">
+              <span class="yt-chart-title">yt3</span>
+              <div style="flex-grow: 1"></div>
+              <button id="dataReset2_yt3" class="btn">데이터 리셋</button>
+              <button id="resetZoom2_yt3" class="btn">Zoom 리셋</button>
+            </div>
+            <div class="chart-container">
+              <canvas id="fig2_yt3"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="fig3-section" class="card tab-content">
+        <div class="controls">
+          <div class="param">
+            <label>LPF cutoff (Hz)</label>
+            <input type="range" id="lpf" min="10" max="20000" step="10" />
+            <input
+              type="number"
+              id="lpf_num"
+              min="10"
+              max="20000"
+              step="10"
+              style="width: 90px"
+            />
+          </div>
+
+          <div class="param">
+            <label>Hardware Sampling Rate (kS/s)</label>
+            <input type="range" id="fs_rate" min="10" max="1000" step="10" />
+            <input
+              type="number"
+              id="fs_rate_num"
+              min="10"
+              max="1000"
+              step="10"
+              style="width: 90px"
+            />
+          </div>
+
+          <div class="param">
+            <label>CH Moving Avg (sec)</label>
+            <input
+              type="range"
+              id="ma_ch_sec"
+              min="0.00001"
+              max="0.0005"
+              step="0.00001"
+              value="0.00001"
+            />
+            <input
+              type="number"
+              id="ma_ch_sec_num"
+              min="0.00001"
+              max="0.0005"
+              step="0.00001"
+              value="0.00001"
+              style="width: 90px"
+            />
+          </div>
+
+          <div class="param">
+            <label>Target rate (S/s)</label>
+            <input type="range" id="trate" min="10" max="2000" step="10" />
+            <input
+              type="number"
+              id="trate_num"
+              min="10"
+              max="2000"
+              step="10"
+              style="width: 90px"
+            />
+          </div>
+
+          <div class="param">
+            <label>R Moving Avg (sec)</label>
+            <input
+              type="range"
+              id="ma_r_sec"
+              min="0.1"
+              max="3.0"
+              step="0.1"
+              value="0.5"
+            />
+            <input
+              type="number"
+              id="ma_r_sec_num"
+              min="0.1"
+              max="3.0"
+              step="0.1"
+              value="0.5"
+              style="width: 90px"
+            />
+          </div>
+
+          <div class="param">
+            <label>Block Size (samples)</label>
+            <input
+              type="range"
+              id="block_size"
+              min="1024"
+              max="65536"
+              step="1024"
+            />
+            <input
+              type="number"
+              id="block_size_num"
+              min="1024"
+              max="65536"
+              step="1024"
+              style="width: 90px"
+            />
           </div>
         </div>
 
-        <div class="control-group">
-          <label>y3 계수 [c5,c4,c3,c2,c1,c0]</label>
-          <div class="coeffs">
-            <input id="y3c" type="text" value="0,1,0,0,0,0" />
-            <button class="btn" id="saveY3">적용</button>
-          </div>
+        <div class="toolbar">
+          <button id="apply" class="btn">적용</button>
+          <button id="resetParams" class="btn">초기화</button>
         </div>
 
-        <div class="control-group">
-          <label>yt 계수 [E,F]</label>
-          <div class="coeffs">
-            <input id="ytc" type="text" value="1,0" />
-            <button class="btn" id="saveYt">적용</button>
-          </div>
-        </div>
-      </div>
+        <div class="muted parameter-view" id="paramsView"></div>
+      </section>
+    </main>
 
-      <!-- --------------------- [그래프 영역] --------------------- -->
-      <div class="toolbar">
-        <div id="fig2Bar" class="legend-bar"></div>
-        <button id="resetZoom2" class="btn">Zoom 리셋 (더블클릭 가능)</button>
-      </div>
-      <div class="chart-container">
-         <canvas id="fig2"></canvas>
-      </div>
-    </section>
+    <script type="module" src="/static/app.js"></script>
 
-    <!-- ============================================================
-      [섹션 3: 실시간 파라미터 제어]
-      - LPF cutoff, Sampling Rate, Moving Avg, Block Size 제어
-      - 적용/초기화 버튼 → 서버 반영
-      - 현재 파라미터 상태를 paramsView에 표시
-    ============================================================ -->
-    <section id="fig3-section" class="card tab-content">
-      <h2>· Configuration</h2>
+    <script>
+      const tabButtons = document.querySelectorAll(".tab-btn");
+      const tabContents = document.querySelectorAll(".tab-content");
 
-      <div class="controls">
-        <div class="param">
-          <label>LPF cutoff (Hz)</label>
-          <input type="range" id="lpf" min="10" max="20000" step="10" />
-          <input type="number" id="lpf_num" min="10" max="20000" step="10" style="width: 90px" />
-        </div>
+      tabButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          tabButtons.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
 
-        <div class="param">
-          <label>Hardware Sampling Rate (kS/s)</label>
-          <input type="range" id="fs_rate" min="10" max="1000" step="10" />
-          <input type="number" id="fs_rate_num" min="10" max="1000" step="10" style="width: 90px" />
-        </div>
-
-        <div class="param">
-          <label>CH Moving Avg (sec)</label>
-          <input type="range" id="ma_ch_sec" min="0" max="0.1" step="0.001" />
-          <input type="number" id="ma_ch_sec_num" min="0" max="0.1" step="0.001" style="width: 80px" />
-        </div>
-
-        <div class="param">
-          <label>Target rate (S/s)</label>
-          <input type="range" id="trate" min="10" max="2000" step="10" />
-          <input type="number" id="trate_num" min="10" max="2000" step="10" style="width: 90px" />
-        </div>
-
-        <div class="param">
-          <label>R Moving Avg (sec)</label>
-          <input type="range" id="ma_r_sec" min="0" max="2" step="0.05" />
-          <input type="number" id="ma_r_sec_num" min="0" max="2" step="0.05" style="width: 80px" />
-        </div>
-
-        <div class="param">
-          <label>Block Size (samples)</label>
-          <input type="range" id="block_size" min="1024" max="65536" step="1024" />
-          <input type="number" id="block_size_num" min="1024" max="65536" step="1024" style="width: 90px" />
-        </div>
-      </div>
-
-      <div class="toolbar">
-        <button id="apply" class="btn">적용</button>
-        <button id="resetParams" class="btn">초기화</button>
-      </div>
-
-      <div class="muted parameter-view" id="paramsView"></div>
-    </section>
-  </main>
-
-  <!-- ===================== [푸터 영역] ===================== -->
- 
-
-  <!-- ===================== [스크립트] ===================== -->
-  <script type="module" src="/static/app.js"></script>
-
-  <!-- ===================== [탭 전환 스크립트] ===================== -->
-  <script>
-    const tabButtons = document.querySelectorAll(".tab-btn");
-    const tabContents = document.querySelectorAll(".tab-content");
-
-    tabButtons.forEach(btn => {
-      btn.addEventListener("click", () => {
-        tabButtons.forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-
-        const targetId = btn.getAttribute("data-target");
-        tabContents.forEach(sec => {
-          sec.classList.toggle("active", sec.id === targetId);
+          const targetId = btn.getAttribute("data-target");
+          tabContents.forEach((sec) => {
+            sec.classList.toggle("active", sec.id === targetId);
+          });
         });
       });
-    });
-  </script>
-</body>
+    </script>
+  </body>
 </html>
