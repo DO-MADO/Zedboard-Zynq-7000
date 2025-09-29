@@ -204,6 +204,55 @@ footer {
   color: var(--text, #fff);
 }
 
+.btn5step {
+  background: var(--panel);
+  color: #e5e7eb;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s, color 0.2s;
+  margin-top: 8px;
+}
+
+.btn5step:hover {
+  background: var(--panel-hover, #2a2a2a);
+  color: var(--text, #fff);
+}
+
+/* 기본 스타일: .tab-btn과 동일하게 설정하여 시각적 일관성 유지 */
+.resetbtn {
+  background: var(--panel);
+  border: none;
+  border-bottom: 2px solid transparent; /* 선택 안된 탭은 보더 안 보이게 */
+  padding: 10px 16px;
+  color: var(--text-muted, #aaa);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: 140px;
+  border-top-right-radius: 16px;
+}
+
+
+.resetbtn:hover {
+  background: var(--panel-hover);
+  color: var(--text, #fff);
+}
+
+
+.resetbtn.active {
+  background: var(--panel);
+  border-bottom: 2px solid var(--accent, #3b82f6);
+  color: var(--text, #fff);
+  font-weight: 600;
+  font-size: 1.01em;
+  border: 1px solid var(--border); 
+  border-bottom: 1px solid var(--panel); 
+  margin-bottom: -1px;
+}
+
 
 
 /* ===================== [파라미터 컨트롤 & 계수 입력] ===================== */
@@ -508,3 +557,46 @@ margin-top: 16px;
 #fig2GridContainer.single-view .yt-chart-wrapper.visible .chart-container {
   height: 600px;
 }
+
+
+
+/* ===================== [R Moving Average 전용 컨트롤] ===================== */
+.r-movavg-param {
+  display: flex;
+  align-items: center;
+  gap: 8px;          /* 기존 코드에서 gap: 8px */
+  margin-left: 20px; /* 기존 인라인 margin-left */
+}
+
+.r-movavg-param label {
+  flex: 0 0 190px;    /* 고정 너비 */
+  white-space: nowrap; 
+  margin-right: 8px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--label-color);
+}
+
+.r-movavg-param input[type="range"] {
+  flex: 1;
+  max-width: 250px;
+  width: 160px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-left: -70px;
+  padding: 6px 8px;
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+
+.r-movavg-param input[type="number"] {
+  width: 90px; /* 기존 인라인 스타일 반영 */
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px;
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+

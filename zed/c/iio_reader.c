@@ -18,9 +18,14 @@
 #include <string.h>
 #include <stddef.h>
 #include <math.h>
+
 #ifdef _WIN32
   #include <fcntl.h>
   #include <io.h>
+  #include <windows.h>
+#else
+  #include <unistd.h>  
+  #include <fcntl.h> 
 #endif
 
 // ---------- Block header (kept as before) ----------
@@ -38,6 +43,44 @@ enum {
     FT_STAGE5_4CH = 2,
     FT_STAGE9_YT4 = 3
 };
+
+
+// ---------- RS485 OUTPUT SETTING ----------
+#ifndef _WIN32
+#include <termios.h>
+int fd_rs485 = -1;
+
+int init_rs485(const char* dev, int baud) {
+    int fd = open(dev, O_WRONLY | O_NOCTTY | O_SYNC);
+    if (fd < 0) { perror("open RS485"); return -1; }
+
+    struct termios tty;
+    memset(&tty, 0, sizeof tty);
+    if (tcgetattr(fd, &tty) != 0) { perror("tcgetattr"); close(fd); return -1; }
+
+    cfsetospeed(&tty, baud);
+    cfsetispeed(&tty, baud);
+
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
+    tty.c_iflag &= ~IGNBRK;
+    tty.c_lflag = 0;
+    tty.c_oflag = 0;
+    tty.c_cc[VMIN]  = 0;
+    tty.c_cc[VTIME] = 5;
+
+    tty.c_cflag |= (CLOCAL | CREAD);
+    tty.c_cflag &= ~(PARENB | PARODD);
+    tty.c_cflag &= ~CSTOPB;
+    tty.c_cflag &= ~CRTSCTS;
+
+    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
+        perror("tcsetattr"); close(fd); return -1;
+    }
+
+    return fd;
+}
+#endif
+
 
 // ---------- Parameters (Python PipelineParams mirror) ----------
 typedef struct {
@@ -59,6 +102,7 @@ typedef struct {
 
     int    r_abs;                  // use fabs on inputs before ratio
 } SignalParams;
+
 
 // ---------- Runtime state ----------
 typedef struct {
@@ -136,7 +180,67 @@ static void sos_df2t_inplace(float* x, int len, const double sos[][6], int n_sec
     }
 }
 
+
+
+// ❗ [신규 추가] 문자열을 파싱하여 double 배열을 채우는 함수
+static void parse_coeffs_from_string(const char* str, double* target_array, int max_len, int* actual_len) {
+    int count = 0;
+    char* buffer = strdup(str); // 원본 문자열 수정을 피하기 위해 복사
+    char* token = strtok(buffer, ",");
+    while (token != NULL && count < max_len) {
+        target_array[count++] = atof(token);
+        token = strtok(NULL, ",");
+    }
+    *actual_len = count;
+    free(buffer);
+}
+
+// ❗ [신규 추가] stdin에서 커맨드를 읽고 처리하는 함수
+static void check_and_process_stdin(SignalParams* P) {
+    char line[256];
+    char key[64];
+    char values_str[192];
+
+#ifdef _WIN32
+    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD bytes_avail = 0;
+    if (!PeekNamedPipe(hStdin, NULL, 0, NULL, &bytes_avail, NULL)) return;
+    if (bytes_avail == 0) return;
+#else
+    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+    if (fgets(line, sizeof(line), stdin) != NULL) {
+        if (sscanf(line, "%63s %191[^\n]", key, values_str) == 2) {
+            if (strcmp(key, "y1_den") == 0) {
+                parse_coeffs_from_string(values_str, P->y1_den, 10, &P->y1_den_len);
+            } else if (strcmp(key, "y2_coeffs") == 0) {
+                parse_coeffs_from_string(values_str, P->y2_coeffs, 10, &P->y2_coeffs_len);
+            } else if (strcmp(key, "y3_coeffs") == 0) {
+                parse_coeffs_from_string(values_str, P->y3_coeffs, 10, &P->y3_coeffs_len);
+            } else if (strcmp(key, "yt_coeffs") == 0) {
+                double temp[2];
+                int len;
+                parse_coeffs_from_string(values_str, temp, 2, &len);
+                if (len == 2) {
+                    P->E = temp[0];
+                    P->F = temp[1];
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv) {
+#ifndef _WIN32
+    // RS485 초기화 현재 하드 코딩 장치 잡히는 경로와 통신 속도 따라서 수정 필요함
+    fd_rs485 = init_rs485("/dev/ttyUSB0", B115200);
+    if (fd_rs485 < 0) {
+        fprintf(stderr, "WARN: RS485 not available, continue with stdout only\n");
+    }
+#endif
+
     // ❗ [최종 수정] ---------- CLI (명령줄 인자 처리) ----------
     // Python에서 보내는 6개의 핵심 파라미터를 인자로 받습니다.
     if (argc < 8) { // ❗ 인자 개수 8개로 수정
@@ -166,6 +270,10 @@ int main(int argc, char **argv) {
 
     // 나머지 계수들은 C 코드에 고정 (이 값들은 UI와 연동하지 않음)
     P.alpha=1.0; P.beta=1.0; P.gamma=1.0; P.k=10.0; P.b=0.0;
+    // y1 분자 = r (항등식)
+    P.y1_num[0] = 1.0;
+    P.y1_num[1] = 0.0;
+    P.y1_num_len = 2;
     P.y1_den[5]=1.0; P.y1_den_len=6;
     P.y2_coeffs[4]=1.0; P.y2_coeffs_len=6;
     P.y3_coeffs[4]=1.0; P.y3_coeffs_len=6;
@@ -216,7 +324,7 @@ int main(int argc, char **argv) {
 
     // ---------- DSP coeffs (SOS) & state ----------
     const int n_sections = 2; // ❗ 4를 2로 수정
-    const double sos[2][6] = { // ❗ 4를 2로 수정하고, 아래 값을 붙여넣기
+    const double sos[2][6] = { // ❗ 4를 2로 수정
         {3.728052e-09, 7.456103e-09, 3.728052e-09, 1.000000e+00, -1.971149e+00, 9.713918e-01},
         {1.000000e+00, 2.000000e+00, 1.000000e+00, 1.000000e+00, -1.987805e+00, 9.880500e-01},
     };
@@ -263,6 +371,7 @@ int main(int argc, char **argv) {
 
     // ---------- Main loop ----------
     for (;;) {
+        check_and_process_stdin(&P);
         if (iio_buffer_refill(buf) < 0) { fprintf(stderr, "ERR: buffer refill\n"); break; }
 
         // 1) raw → float (interleaved)
@@ -391,14 +500,25 @@ int main(int argc, char **argv) {
             {
                 uint8_t ft = (uint8_t)FT_STAGE9_YT4;
                 block_hdr_t h9 = { (uint32_t)n_ta, 4u };
+
+                // stdout (Python)
                 fwrite(&ft, 1, 1, stdout);
                 fwrite(&h9, sizeof(h9), 1, stdout);
                 fwrite(YT_out, sizeof(float), (size_t)n_ta * 4, stdout);
                 fflush(stdout);
-            }
-        }
-    }
 
+            #ifndef _WIN32
+                // RS485  이진 바이너리 출력 필요시 ASCII 변환하면 됨
+                if (fd_rs485 >= 0) {
+                    write(fd_rs485, &ft, 1);
+                    write(fd_rs485, &h9, sizeof(h9));
+                    write(fd_rs485, YT_out, sizeof(float) * (size_t)n_ta * 4);
+                    // tcdrain(fd_rs485);  // (선택) 버퍼 모두 송신 완료까지 대기
+                }
+            #endif
+            } // Stage9 emit block 종료
+        } 
+    }    
     // ---------- Cleanup ----------
     free(YT_out); free(S5_out); free(Ravg_buf); free(R_buf);
     free(ta_out); free(ta_combined); free(chan_buf); free(lpf_f32); free(raw_f32);
@@ -406,5 +526,9 @@ int main(int argc, char **argv) {
     iio_buffer_destroy(buf);
     free(in_ch); free(scales);
     iio_context_destroy(ctx);
+#ifndef _WIN32
+    if (fd_rs485 >= 0) close(fd_rs485);
+#endif
     return 0;
 }
+    

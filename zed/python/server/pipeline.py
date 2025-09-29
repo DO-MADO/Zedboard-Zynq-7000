@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, List, Dict, Tuple
 
 import numpy as np
+import sys
 
 
 # -----------------------------
@@ -83,6 +84,7 @@ class CProcSource(SourceBase):
         # C 리더(iio_reader.exe)를 실행
         self.proc = subprocess.Popen(
             args,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
@@ -91,7 +93,10 @@ class CProcSource(SourceBase):
         # 표준 출력이 정상적으로 연결되었는지 확인합니다.
         if not self.proc.stdout:
             raise RuntimeError("CProcSource: C process stdout is not available.")
+        if not self.proc.stdin: # ❗ [추가] stdin 연결 확인
+            raise RuntimeError("CProcSource: C process stdin is not available.")
         self._stdout = self.proc.stdout
+        self._stdin = self.proc.stdin # ❗ [추가] stdin 객체 저장
         self._hdr_struct = struct.Struct("<BII")
 
 
@@ -125,6 +130,19 @@ class CProcSource(SourceBase):
         arr = np.frombuffer(payload_bytes, dtype=np.float32).reshape(n_samp, n_ch)
         
         return int(ftype), arr
+    
+    # ❗ [추가] C 프로세스에 커맨드를 보내는 메소드
+    def send_command(self, line: str):
+        """C 프로세스의 stdin으로 한 줄의 명령어를 보냅니다."""
+        if self._stdin and not self._stdin.closed:
+            try:
+                # C에서 fgets로 읽을 수 있도록 개행 문자를 추가하고 UTF-8로 인코딩
+                self._stdin.write(f"{line}\n".encode('utf-8'))
+                self._stdin.flush()
+            except (IOError, ValueError) as e:
+                print(f"[pipeline] Failed to send command: {e}", file=sys.stderr)
+    
+
 
     def terminate(self):
         """
@@ -235,6 +253,32 @@ class Pipeline:
         self._last_yt   = None
         self._pending_stage3_block = None
         self._pending_ts = None
+        
+    
+    # ❗ [추가] 계수 업데이트를 위한 메소드
+    def update_coeffs(self, key: str, values: List[float]):
+        """
+        C-DSP 프로세스에 실시간으로 계수 업데이트 명령을 보냅니다.
+        C 프로세스를 재시작하지 않습니다.
+        """
+        # 1. 파이썬 파라미터 객체에도 값을 동기화
+        if hasattr(self.params, key):
+            setattr(self.params, key, values)
+        elif key == 'yt_coeffs' and len(values) == 2:
+            self.params.E = values[0]
+            self.params.F = values[1]
+
+        # 2. C 프로세스로 전송할 커맨드 문자열 생성
+        # 예: "y1_den 0.0,0.0,1.0,0.0,0.0,0.0"
+        values_str = ",".join(map(str, values))
+        command = f"{key} {values_str}"
+
+        # 3. CProcSource인 경우에만 커맨드 전송
+        if isinstance(self.src, CProcSource):
+            self.src.send_command(command)
+            print(f"[Pipeline] Sent command to C: {command}")    
+
+
 
     def register_consumer(self) -> asyncio.Queue:
         q: asyncio.Queue[str] = asyncio.Queue(maxsize=2)

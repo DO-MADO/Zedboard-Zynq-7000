@@ -11,6 +11,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from pydantic import BaseModel, Field
+from typing import Optional, List, Dict # ❗ [추가] Dict 임포트
+from copy import deepcopy
+
+
 
 # -----------------------------
 # Paths
@@ -36,13 +40,20 @@ PipelineParams = adc_pipeline.PipelineParams
 # Pydantic 모델
 # -----------------------------
 # ❗ [최종 수정] ParamsIn 모델: UI에서 보내는 모든 파라미터 정의
+
+# ❗ [수정] ParamsIn 모델을 아래와 같이 분리/수정
+class CoeffsUpdate(BaseModel):
+    key: str # 예: "y1_den", "y2_coeffs" 등
+    values: List[float]
+    
+    
 class ParamsIn(BaseModel):
     sampling_frequency: Optional[float] = None
     block_samples: Optional[int] = None
     target_rate_hz: Optional[float] = None
     lpf_cutoff_hz: Optional[float] = None
-    movavg_ch_sec: Optional[float] = None # ❗ CH MA(초) 추가
-    movavg_r_sec: Optional[float] = None  # UI는 초(sec) 단위로 보냄
+    movavg_ch_sec: Optional[float] = None
+    movavg_r_sec: Optional[float] = None
 
 # -----------------------------
 # FastAPI app & Helpers
@@ -64,6 +75,24 @@ def _with_legacy_keys(p: dict) -> dict:
 @app.get("/")
 async def index():
     return FileResponse(STATIC / "index.html")
+
+
+
+# ❗ [신규 추가] 계수 업데이트를 위한 API 엔드포인트
+@app.post("/api/coeffs")
+async def set_coeffs(p: CoeffsUpdate):
+    """실행 중인 C 프로세스에 계수만 실시간으로 업데이트합니다."""
+    app.state.pipeline.update_coeffs(p.key, p.values)
+
+    # UI의 'Configuration' 탭 정보도 동기화
+    updated_params = _with_legacy_keys(asdict(app.state.pipeline.params))
+    return {
+        "ok": True,
+        "message": f"Coefficients for '{p.key}' updated.",
+        "params": updated_params
+    }
+
+
 
 @app.get("/api/params")
 async def get_params():
@@ -135,32 +164,30 @@ async def set_params(p: ParamsIn):
 
 
 
+
 @app.post("/api/params/reset")
 async def reset_params():
-    """
-    파라미터 초기화 API (수정된 버전)
-    - 서버 시작 시의 기본 파라미터로 완벽하게 복원합니다.
-    """
     p_current = app.state.pipeline
     p_current.stop()
-    
-    # ❗ [수정] 서버 시작 시 저장해둔 초기 파라미터(app.state.default_params)를 사용
-    new_pipeline = Pipeline(
-        params=app.state.default_params, 
-        broadcast_fn=p_current.broadcast_fn
-    )
+
+    # 기본 파라미터 불러오기
+    base = deepcopy(app.state.default_params)
+    # 실행 관련 값은 현재 pipeline 것 유지
+    base.mode = p_current.params.mode
+    base.exe_path = p_current.params.exe_path
+    base.ip = p_current.params.ip
+    # base.block_samples = p_current.params.block_samples
+    # base.sampling_frequency = p_current.params.sampling_frequency
+
+    new_pipeline = Pipeline(params=base, broadcast_fn=p_current.broadcast_fn)
     new_pipeline.start()
     app.state.pipeline = new_pipeline
-    print("[INFO] Pipeline has been reset to default startup parameters.")
 
-    # UI 동기화
     payload = {"type": "params", "data": _with_legacy_keys(asdict(new_pipeline.params))}
-    app.state.pipeline._broadcast(payload)
-    return {
-        "ok": True, 
-        "restarted": True, 
-        "params": _with_legacy_keys(asdict(new_pipeline.params))
-    }
+    app.state.pipeline._broadcast(payload)  # 초기화된 값 즉시 push
+
+    return {"ok": True, "restarted": True, "params": _with_legacy_keys(asdict(new_pipeline.params))}
+
 
 
 @app.get("/favicon.ico")

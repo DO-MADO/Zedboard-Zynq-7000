@@ -16,8 +16,12 @@ import zoomPlugin from 'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/+
 // Chart.js에 zoom 플러그인 등록 (등록하지 않으면 확대/축소 기능 작동 X)
 Chart.register(zoomPlugin);
 
+
+// ❗ [신규 추가] 페이지 로드 시의 기본 파라미터를 저장할 변수
+let initialParams = null;
+
 // ✅ 차트에 표시할 최대 데이터 포인트 수 (메모리 관리)
-const MAX_DATA_POINTS = 1000;
+const MAX_DATA_POINTS = 36000;
 
 // ============================================================
 //  [DOM 요소 참조]
@@ -56,6 +60,13 @@ const saveY2 = document.getElementById('saveY2'); // y2 저장 버튼
 const saveY3 = document.getElementById('saveY3'); // y3 저장 버튼
 const saveYt = document.getElementById('saveYt'); // yt 저장 버튼
 
+
+// ❗ [신규 추가]
+const maR_raw = document.getElementById('ma_r_sec_raw');
+const maRNum_raw = document.getElementById('ma_r_sec_num_raw');
+const applyBtn_raw_r = document.getElementById('apply_raw_r');
+const resetParamsBtn_raw_r = document.getElementById('resetParams_raw_r');
+
 // --- 색상 팔레트 (채널별 라인 색상, 최대 8채널까지 반복 적용) ---
 const palette = [
   '#60A5FA',
@@ -86,6 +97,26 @@ const stage3Block = document.getElementById('stage3Block');
 const stage5Block = document.getElementById('stage5Block');
 const stage3Container = document.getElementById('stage3Container');
 const stage5Container = document.getElementById('stage5Container');
+
+
+// 전역 초기화 버튼
+function resetAllChartData() {
+  // 1. 모든 차트의 데이터를 초기화합니다.
+  resetFig1Data();
+  resetFig3Data();
+  ytChannels.forEach(ch => resetYtChartData(ch));
+
+  // 2. 사용자에게 알림창을 띄웁니다.
+  alert("모든 그래프가 초기화 되었습니다.");
+
+  // 3. 'Raw Data' 탭 버튼을 찾아서 클릭 이벤트를 발생시킵니다.
+  const rawDataTabBtn = document.getElementById('rawDataTabBtn');
+  if (rawDataTabBtn) {
+    rawDataTabBtn.click();
+  }
+}
+
+
 
 // ============================================================
 //  [4ch(fig2) 탭 리팩토링: 관련 DOM 참조 및 상태 관리]
@@ -348,6 +379,7 @@ bindPair(maR, maRNum); // R 이동평균
 bindPair(tRate, tRateNum); // Target Rate
 bindPair(fsRate, fsRateNum); // 샘플링 속도
 bindPair(blockSize, blockSizeNum); // 블록 크기
+bindPair(maR_raw, maRNum_raw);
 
 /**
  * 차트에 데이터셋(라인)이 없으면 생성해주는 함수
@@ -592,6 +624,12 @@ function renderFig3Toggles(chart) {
 async function fetchParams() {
   const r = await fetch('/api/params');
   const p = await r.json();
+
+  // ❗ [수정] initialParams가 비어있을 때 (최초 1회)만 값을 저장합니다.
+  if (!initialParams) {
+    initialParams = p;
+  }
+
   applyParamsToUI(p);
 }
 
@@ -625,6 +663,19 @@ function applyParamsToUI(p) {
   if (maR) maR.value = ma_r_sec;
   if (maChNum) maChNum.value = ma_ch_sec;
   if (maCh) maCh.value = ma_ch_sec;
+  if (maRNum_raw) maRNum_raw.value = ma_r_sec; // ❗ [신규 추가]
+  if (maR_raw) maR_raw.value = ma_r_sec;     // ❗ [신규 추가]
+
+  
+
+  // ❗ [추가] 4ch 탭 계수 입력 필드 채우기
+  if (y1c && p.y1_den) y1c.value = p.y1_den.join(',');
+  if (y2c && p.y2_coeffs) y2c.value = p.y2_coeffs.join(',');
+  if (y3c && p.y3_coeffs) y3c.value = p.y3_coeffs.join(',');
+  if (ytc && p.E !== undefined && p.F !== undefined) ytc.value = `${p.E},${p.F}`;
+  
+
+
 
   if (paramsView) {
     const fsPretty =
@@ -681,6 +732,48 @@ async function postParams(diff) {
   }
 }
 
+
+// ❗ [추가] alert 창에 표시될 계수 이름을 매핑합니다.
+const coeffDisplayNames = {
+    'y1_den': 'y1 분모',
+    'y2_coeffs': 'y2',
+    'y3_coeffs': 'y3',
+    'yt_coeffs': 'yt'
+};
+
+async function postCoeffs(key, values) {
+  try {
+    const r = await fetch('/api/coeffs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, values }),
+    });
+    if (!r.ok) {
+        throw new Error(`Server responded with ${r.status}`);
+    }
+
+    // ❗ --- [여기가 추가된 부분입니다] ---
+    // 1. 매핑된 이름 가져오기 (없으면 원래 key 사용)
+    const displayName = coeffDisplayNames[key] || key;
+    // 2. 사용자에게 보여줄 alert 메시지 생성 및 표시
+    // JSON.stringify(values)는 [0,1,0.5] 와 같이 배열 형태로 예쁘게 만들어줍니다.
+    alert(`${displayName} 계수 ${JSON.stringify(values)} (이)가 적용되었습니다.`);
+    // ❗ --- [여기까지] ---
+
+    const j = await r.json();
+    // 성공 시, Configuration 탭의 파라미터 뷰를 최신 정보로 업데이트
+    if (j.ok && j.params) {
+        applyParamsToUI(j.params);
+    }
+    console.log(j.message);
+  } catch (e) {
+    console.error(`Failed to update coeffs for ${key}:`, e);
+    alert(`'${key}' 계수 업데이트에 실패했습니다.`);
+  }
+}
+
+
+
 document.getElementById('apply')?.addEventListener('click', () => {
   postParams({
     sampling_frequency: parseFloat(fsRateNum.value) * 1000,
@@ -691,6 +784,57 @@ document.getElementById('apply')?.addEventListener('click', () => {
     movavg_ch_sec: parseFloat(maChNum.value),
   });
 });
+
+// ❗ [신규 추가] Raw Data 탭의 R Moving Avg '적용' 버튼
+applyBtn_raw_r?.addEventListener('click', () => {
+  // R Moving Avg 파라미터 하나만 객체에 담아 전송
+  postParams({
+    movavg_r_sec: parseFloat(maRNum_raw.value),
+  });
+});
+
+// ❗ [수정] Raw Data 탭의 R Moving Avg '적용' 버튼 이벤트 리스너
+apply_raw_r?.addEventListener('click', async () => { // ❗ async 키워드 추가
+  try {
+    // 1. 적용할 값을 변수에 저장
+    const valueToApply = parseFloat(maRNum_raw.value);
+
+    // 2. await를 사용해 서버에 적용이 끝날 때까지 기다림
+    await postParams({
+      movavg_r_sec: valueToApply,
+    });
+
+    // 3. 성공적으로 끝나면 사용자에게 알림창 표시
+    alert(`R Moving Avg 값이 ${valueToApply}s 로 적용되었습니다.`);
+
+  } catch (e) {
+    // 4. 중간에 에러가 발생하면 콘솔에 기록
+    console.error('Failed to apply R Moving Avg:', e);
+    alert('값 적용에 실패했습니다.');
+  }
+});
+
+// ❗ [신규 추가] Raw Data 탭의 '초기화' 버튼
+resetParamsBtn_raw_r?.addEventListener('click', () => {
+  // 1. 저장해둔 초기 파라미터가 없으면 아무것도 하지 않음
+  if (!initialParams) {
+    alert("초기 파라미터 정보가 아직 로드되지 않았습니다.");
+    return;
+  }
+
+  // 2. 초기 파라미터에서 R Moving Avg의 기본값(초 단위)을 계산
+  const default_movavg_r = initialParams.movavg_r;
+  const default_tr = initialParams.target_rate_hz;
+  const defaultValueSec = (default_movavg_r / default_tr).toFixed(1);
+
+  // 3. 계산된 기본값으로 postParams 함수를 호출하여 서버에 적용
+  //    UI는 postParams가 성공 응답을 받으면 자동으로 업데이트됩니다.
+  postParams({ movavg_r_sec: parseFloat(defaultValueSec) });
+
+  // 4. 사용자에게 피드백
+  alert(`R Moving Avg 값이 초기값(${defaultValueSec}s)으로 재설정되었습니다.`);
+});
+
 
 function parseCoeffs(txt) {
   return txt
@@ -710,18 +854,27 @@ function _info(msg) {
   alert(msg);
 }
 
-saveY1?.addEventListener('click', () =>
-  _info('C-DSP 모드: 계수는 C(iio_reader)에서 고정됩니다.')
-);
-saveY2?.addEventListener('click', () =>
-  _info('C-DSP 모드: 계수는 C(iio_reader)에서 고정됩니다.')
-);
-saveY3?.addEventListener('click', () =>
-  _info('C-DSP 모드: 계수는 C(iio_reader)에서 고정됩니다.')
-);
-saveYt?.addEventListener('click', () =>
-  _info('C-DSP 모드: 계수는 C(iio_reader)에서 고정됩니다.')
-);
+
+
+// ❗ [수정] 기존 _info 알림창을 postCoeffs 호출로 변경
+saveY1?.addEventListener('click', () => {
+    const values = parseCoeffs(y1c.value);
+    postCoeffs('y1_den', values);
+});
+saveY2?.addEventListener('click', () => {
+    const values = parseCoeffs(y2c.value);
+    postCoeffs('y2_coeffs', values);
+});
+saveY3?.addEventListener('click', () => {
+    const values = parseCoeffs(y3c.value);
+    postCoeffs('y3_coeffs', values);
+});
+saveYt?.addEventListener('click', () => {
+    const values = parseCoeffs(ytc.value);
+    postCoeffs('yt_coeffs', values);
+});
+
+
 
 function updateStatsDisplay(stats) {
   if (!statsDisplay || !stats) return;
@@ -843,15 +996,29 @@ resetParamsBtn?.addEventListener('click', async () => {
   try {
     const r = await fetch('/api/params/reset', { method: 'POST' });
     const j = await r.json();
-    if (j.restarted) {
-      softReconnectCharts();
-    } else if (j && j.params) {
-      applyParamsToUI(j.params);
+    
+    if (j.ok) {
+      if (j.params) {
+        applyParamsToUI(j.params);
+      }
+      
+      
+      if (j.restarted) {
+        softReconnectCharts();
+      }
+      
+      alert("모든 파라미터 값과 계수가 초기화 되었습니다.");
+
+    } else {
+      alert("초기화에 실패했습니다.");
     }
   } catch (e) {
     console.error(e);
+    alert("초기화 중 오류가 발생했습니다.");
   }
 });
+
+
 
 // [NEW] 4ch 탭 내부의 뷰 모드(All, yt0, ...) 전환 로직
 function setupYtViewMode() {
@@ -912,3 +1079,10 @@ setupDataResetButtons();
 applyRawViewMode('both');
 setupViewModeButtons();
 setupYtViewMode(); // 4ch 탭 뷰 모드 활성화
+
+
+
+const globalResetBtn = document.getElementById('globalResetBtn');
+if (globalResetBtn) {
+  globalResetBtn.addEventListener('click', resetAllChartData);
+}
