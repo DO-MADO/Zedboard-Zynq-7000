@@ -247,11 +247,13 @@ if __name__ == "__main__":
     )
 
     # --- 3. 파이프라인 생성 및 시작 ---
-    pipeline = Pipeline(params=startup_params, broadcast_fn=lambda payload: None)
+    # ❗ [수정] pipeline에 startup_params의 '복사본'을 전달하여
+    # default_params가 오염되지 않도록 합니다.
+    pipeline = Pipeline(params=deepcopy(startup_params), broadcast_fn=lambda payload: None)
     pipeline.start()
 
     # --- 4. FastAPI 앱 상태(app.state)에 객체 저장 ---
-    # '초기화' 버튼이 참조할 수 있도록 기본 파라미터를 별도로 저장
+    # '초기화' 버튼이 참조할 수 있도록 원본/기본 파라미터를 저장
     app.state.default_params = startup_params
     # 현재 실행 중인 파이프라인 저장
     app.state.pipeline = pipeline

@@ -59,7 +59,8 @@ const saveY1 = document.getElementById('saveY1'); // y1 저장 버튼
 const saveY2 = document.getElementById('saveY2'); // y2 저장 버튼
 const saveY3 = document.getElementById('saveY3'); // y3 저장 버튼
 const saveYt = document.getElementById('saveYt'); // yt 저장 버튼
-
+// ❗ [추가] 4ch 탭의 실시간 yt 값 표시 영역
+const ytValuesDisplay = document.getElementById('ytValuesDisplay');
 
 // ❗ [신규 추가]
 const maR_raw = document.getElementById('ma_r_sec_raw');
@@ -694,6 +695,7 @@ function applyParamsToUI(p) {
       `<span style="color: rgb(96, 165, 250); font-weight: 550">${v}</span>`;
     paramsView.innerHTML = `
       <br/>
+      <h1>🖥️ 통합 상태 요약</h1>
       <p><strong>샘플링 속도(ADC)</strong> : ${HILITE(fsPretty)} <span class="hint">— 하드웨어가 초당 채취하는 원시 샘플 개수</span></p>
       <p><strong>블록 크기</strong> : ${HILITE(`${bs} 샘플`)} <span class="hint">— 블록 1개의 길이 약 ${HILITE(blockSec + '초')}(ADC 기준)</span></p>
       <p><strong>표출 속도(시간평균 후)</strong> : ${HILITE(`${tr} 샘플/초`)} <span class="hint">— ADC 샘플을 평균 내어 초당 ${tr}개 점으로 줄여 화면에 표시</span></p>
@@ -774,15 +776,26 @@ async function postCoeffs(key, values) {
 
 
 
-document.getElementById('apply')?.addEventListener('click', () => {
-  postParams({
-    sampling_frequency: parseFloat(fsRateNum.value) * 1000,
-    block_samples: parseInt(blockSizeNum.value, 10),
-    target_rate_hz: parseFloat(tRateNum.value),
-    lpf_cutoff_hz: parseFloat(lpfNum.value),
-    movavg_r_sec: parseFloat(maRNum.value),
-    movavg_ch_sec: parseFloat(maChNum.value),
-  });
+document.getElementById('apply')?.addEventListener('click', async () => { // ❗ 1. async 추가
+  try {
+    // ❗ 2. await를 사용하여 postParams 함수가 완료될 때까지 기다림
+    await postParams({
+      sampling_frequency: parseFloat(fsRateNum.value) * 1000,
+      block_samples: parseInt(blockSizeNum.value, 10),
+      target_rate_hz: parseFloat(tRateNum.value),
+      lpf_cutoff_hz: parseFloat(lpfNum.value),
+      movavg_r_sec: parseFloat(maRNum.value),
+      movavg_ch_sec: parseFloat(maChNum.value),
+    });
+
+    // ❗ 3. 성공적으로 완료되면 alert 알림창 표시
+    alert("파라미터가 성공적으로 적용되었습니다.");
+
+  } catch (e) {
+    // (선택) 만약 서버 요청 중 에러가 발생하면 사용자에게 알림
+    console.error("파라미터 적용 실패:", e);
+    alert("파라미터 적용 중 오류가 발생했습니다.");
+  }
 });
 
 // ❗ [신규 추가] Raw Data 탭의 R Moving Avg '적용' 버튼
@@ -902,6 +915,26 @@ function updateStatsDisplay(stats) {
   statsDisplay.innerHTML = items.join('<span class="separator"> | </span>');
 }
 
+/**
+ * ❗ [신규 추가] 4ch 탭의 실시간 yt 값 텍스트를 업데이트하는 함수
+ * @param {Array<number|null>} latestValues - [yt0, yt1, yt2, yt3] 최신 값 배열
+ */
+function updateYtValuesDisplay(latestValues) {
+  // DOM 요소가 없거나, 배열 데이터가 아니면 즉시 종료
+  if (!ytValuesDisplay || !Array.isArray(latestValues)) return;
+
+  // 배열의 각 값을 "yt0: 1.2345" 형태의 HTML 문자열로 변환
+  const items = latestValues.map((v, i) => {
+    // 값이 null이거나 유효하지 않으면 '---'로 표시, 아니면 소수점 4자리까지
+    const valueStr = v === null || v === undefined ? '---' : v.toFixed(4);
+    return `yt${i}: <span class="stat-value">${valueStr}</span>`;
+  });
+
+  // 변환된 문자열들을 구분자와 함께 합쳐서 innerHTML에 삽입
+  ytValuesDisplay.innerHTML = items.join('<span class="separator"> | </span>');
+}
+
+
 // ============================================================
 //  [WebSocket 연결 & 데이터 핸들링]
 // ============================================================
@@ -969,6 +1002,14 @@ function connectWS() {
         if (m.derived && dt !== null) {
           appendDataToFig2Charts(m.derived, dt);
         }
+
+        // ❗ [추가] 실시간 값 표시 기능 호출
+        // 1. m.derived.series 배열에서 각 채널(yt0~yt3)의 '마지막' 값만 추출
+        const latestYtValues = m.derived.series.map((channelData) =>
+          channelData.length > 0 ? channelData[channelData.length - 1] : null
+        );
+        // 2. 추출한 최신 값 배열을 새 함수에 전달하여 UI 업데이트
+        updateYtValuesDisplay(latestYtValues);
 
         if (m.stats) {
           updateStatsDisplay(m.stats);
