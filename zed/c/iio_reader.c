@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stddef.h>
 #include <math.h>
+#include <time.h>
 
 #ifdef _WIN32
   #include <fcntl.h>
@@ -28,6 +29,7 @@
   #include <fcntl.h> 
   #include <termios.h>   //  추가: UART 설정용
   #include <errno.h>     //  추가: 오류 문자열용
+  #include <sys/time.h>
 #endif
 
 // ---------- Block header (kept as before) ----------
@@ -304,9 +306,9 @@ int main(int argc, char **argv) {
             fprintf(stderr, "[INFO] UART COM3 opened @115200\n");
         }
     #else
-        uart_fd = open_uart("/dev/ttyPS1", 115200);
+        uart_fd = open_uart("/dev/ttyPS0", 115200);
         if (uart_fd >= 0) {
-            fprintf(stderr, "[INFO] UART /dev/ttyPS1 opened @115200\n");
+            fprintf(stderr, "[INFO] UART /dev/ttyPS0 opened @115200\n");
         }
     #endif
 
@@ -615,10 +617,41 @@ int main(int argc, char **argv) {
                         }
                     }
             #else
+            
+                    static FILE* logf = NULL;   // 실행 중 계속 유지되는 파일 포인터
                     if (uart_fd >= 0) {
                         for (int t = 0; t < n_ta; t++) {
-                            dprintf(uart_fd, "YT[%d] = %.3f, %.3f, %.3f, %.3f\r\n",
-                                t, YT_out[t*4+0], YT_out[t*4+1], YT_out[t*4+2], YT_out[t*4+3]);
+                            struct timeval tv;
+                            gettimeofday(&tv, NULL);
+
+                            struct tm* tm_info = localtime(&tv.tv_sec);
+                            char time_buf[64];
+                            strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
+
+                            // 1) UART 출력    
+                            dprintf(uart_fd,
+                                "%s.%03ld,%.3f,%.3f,%.3f,%.3f\r\n",
+                                time_buf, tv.tv_usec / 1000,
+                                YT_out[t*4+0], YT_out[t*4+1],
+                                YT_out[t*4+2], YT_out[t*4+3]);
+
+                            // 2) CSV 파일 저장 (보드 내부 log.csv)
+                            if (!logf) {
+                                // 프로그램 시작 시 한 번만 파일 열기
+                                logf = fopen("yt_log.csv", "a");
+                                if (!logf) {
+                                    perror("fopen(yt_log.csv)");
+                                }
+                            }
+
+                            if (logf) {
+                                fprintf(logf, "%s.%03ld,%.3f,%.3f,%.3f,%.3f\n",
+                                    time_buf, tv.tv_usec / 1000,
+                                    YT_out[t*4+0], YT_out[t*4+1],
+                                    YT_out[t*4+2], YT_out[t*4+3]);
+
+                                fflush(logf);  // 버퍼에 쌓이지 않도록 즉시 디스크 반영
+                            }
                         }
                     }
             #endif
