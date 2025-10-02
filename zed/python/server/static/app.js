@@ -101,20 +101,16 @@ const stage5Container = document.getElementById('stage5Container');
 
 
 // 전역 초기화 버튼
+// ❗ [수정]
 function resetAllChartData() {
   // 1. 모든 차트의 데이터를 초기화합니다.
   resetFig1Data();
   resetFig3Data();
-  ytChannels.forEach(ch => resetYtChartData(ch));
+  // ❗ [수정] 예전 함수(resetYtChartData) 대신 새 함수(resetYtChannelStages)를 호출합니다.
+  ytChannels.forEach(ch => resetYtChannelStages(ch));
 
   // 2. 사용자에게 알림창을 띄웁니다.
   alert("모든 그래프가 초기화 되었습니다.");
-
-  // 3. 'Raw Data' 탭 버튼을 찾아서 클릭 이벤트를 발생시킵니다.
-  const rawDataTabBtn = document.getElementById('rawDataTabBtn');
-  if (rawDataTabBtn) {
-    rawDataTabBtn.click();
-  }
 }
 
 
@@ -123,28 +119,43 @@ function resetAllChartData() {
 //  [4ch(fig2) 탭 리팩토링: 관련 DOM 참조 및 상태 관리]
 // ============================================================
 const fig2Refs = {
-  charts: {}, // Chart.js 인스턴스 저장
+  charts: {},       // 예: charts['yt0']['y2'] = Chart instance
   contexts: {},
   timeCounters: {},
   wrappers: {},
-  dataResetButtons: {},
-  zoomResetButtons: {},
+  // 버튼들은 이제 사용되지 않으므로 제거하거나 주석처리 가능
+  // dataResetButtons: {},
+  // zoomResetButtons: {},
 };
 
 const ytChannels = ['yt0', 'yt1', 'yt2', 'yt3'];
+const ytStages = ['y2', 'y3', 'yt']; // ❗ [추가] 스테이지 목록
 
-// 4개 채널에 대한 DOM 요소를 반복문으로 찾아와 fig2Refs 객체에 저장
+
+
+// ❗ [수정] 4개 채널 x 3개 스테이지에 대한 DOM 요소를 반복문으로 찾아와 fig2Refs 객체에 저장
 ytChannels.forEach((ch) => {
-  const canvas = document.getElementById(`fig2_${ch}`);
-  fig2Refs.contexts[ch] = canvas;
+  // 채널별로 객체 초기화
+  fig2Refs.charts[ch] = {};
+  fig2Refs.contexts[ch] = {};
+  fig2Refs.timeCounters[ch] = {};
+
   fig2Refs.wrappers[ch] = document.getElementById(`${ch}Wrapper`);
-  fig2Refs.dataResetButtons[ch] = document.getElementById(`dataReset2_${ch}`);
-  fig2Refs.zoomResetButtons[ch] = document.getElementById(`resetZoom2_${ch}`);
-  fig2Refs.timeCounters[ch] = 0;
+
+  ytStages.forEach((stage) => {
+    const canvasId = `fig2_${ch}_${stage}`;
+    const canvas = document.getElementById(canvasId);
+    if (canvas) {
+      fig2Refs.contexts[ch][stage] = canvas;
+      fig2Refs.timeCounters[ch][stage] = 0;
+    }
+  });
 });
 
 const fig2GridContainer = document.getElementById('fig2GridContainer');
 const ytViewModeBar = document.getElementById('ytViewModeBar');
+
+
 
 // --- 보기 모드 적용 함수 ---
 function applyRawViewMode(mode) {
@@ -275,25 +286,30 @@ function resetFig3Data() {
   fig3.update('none');
 }
 
-// [NEW] 4ch 탭의 특정 채널 차트 데이터 리셋 함수
-function resetYtChartData(channel) {
-  const chart = fig2Refs.charts[channel];
-  if (!chart) return;
+// ❗ [수정] 특정 채널의 '모든 스테이지' 차트 데이터를 리셋하는 함수
+function resetYtChannelStages(channel) {
+  if (!fig2Refs.charts[channel]) return;
 
-  fig2Refs.timeCounters[channel] = 0;
-  chart.data.labels = [];
-  chart.data.datasets.forEach((ds) => (ds.data = []));
-  chart.options.scales.x.min = 0;
-  chart.options.scales.x.max = undefined;
-  chart.resetZoom?.();
-  chart.update('none');
+  ytStages.forEach(stage => {
+    const chart = fig2Refs.charts[channel][stage];
+    if (!chart) return;
+
+    fig2Refs.timeCounters[channel][stage] = 0;
+    chart.data.labels = [];
+    chart.data.datasets.forEach((ds) => (ds.data = []));
+    chart.options.scales.x.min = 0;
+    chart.options.scales.x.max = undefined;
+    chart.resetZoom?.();
+    chart.update('none');
+  });
 }
+
 
 // --- soft reconnect: 페이지 리로드 없이 C 프로세스 재시작 반영 ---
 function softReconnectCharts() {
   // 1) 화면 유지 + 차트 데이터만 초기화
   resetFig1Data();
-  ytChannels.forEach((ch) => resetYtChartData(ch)); // 4ch 탭의 모든 차트 리셋
+  ytChannels.forEach((ch) => resetYtChannelStages(ch));  // resetYtChartData(ch) -> resetYtChannelStages(ch)로 수정)
   resetFig3Data();
 
   // 2) 웹소켓만 재연결
@@ -303,59 +319,55 @@ function softReconnectCharts() {
   setTimeout(connectWS, 150); // 약간의 텀을 두면 깔끔
 }
 
-// [NEW] 4ch 탭의 개별 차트에 데이터를 누적하는 함수
-function appendDataToFig2Charts(derived, dt) {
-  if (
-    !derived ||
-    !Array.isArray(derived.series) ||
-    derived.series.length === 0 ||
-    !dt
-  )
-    return;
+// ❗ [수정] 확장된 데이터 페이로드를 모든 차트에 분배하는 함수
+function appendDataToFig2(data, dt) {
+  const stageDataMap = {
+    y2: data.stage7_y2,
+    y3: data.stage8_y3,
+    yt: data.derived
+  };
 
-  const series = derived.series;
-  const names =
-    derived.names && derived.names.length ? derived.names : ytChannels;
+  ytChannels.forEach((ch, chIndex) => {
+    ytStages.forEach(stage => {
+      const chart = fig2Refs.charts[ch][stage];
+      const sourceData = stageDataMap[stage];
 
-  series.forEach((channelData, index) => {
-    const channelName = names[index];
-    const chart = fig2Refs.charts[channelName];
-    if (!chart || channelData.length === 0) return;
+      if (!chart || !sourceData || !Array.isArray(sourceData.series) || sourceData.series.length <= chIndex) {
+        return;
+      }
+      
+      const channelData = sourceData.series[chIndex];
+      if (!channelData || channelData.length === 0) return;
 
-    // 데이터셋이 없으면 생성
-    if (chart.data.datasets.length === 0) {
-      chart.data.datasets.push({
-        label: channelName,
-        data: [],
-        borderColor: palette[index % palette.length],
-        borderWidth: 1.5,
-        fill: false,
-        tension: 0.1,
-      });
-    }
+      if (chart.data.datasets.length === 0) {
+        chart.data.datasets.push({
+          label: `${ch}-${stage}`,
+          data: [],
+          borderColor: palette[chIndex % palette.length],
+          borderWidth: 1.5,
+          fill: false,
+          tension: 0.1,
+        });
+      }
 
-    // 새 데이터 추가
-    const nSamp = channelData.length;
-    let lastTime = fig2Refs.timeCounters[channelName];
-    const new_times = Array.from(
-      { length: nSamp },
-      (_, i) => lastTime + (i + 1) * dt
-    );
-    fig2Refs.timeCounters[channelName] = new_times[new_times.length - 1];
+      let lastTime = fig2Refs.timeCounters[ch][stage];
+      const new_times = Array.from({ length: channelData.length }, (_, i) => lastTime + (i + 1) * dt);
+      fig2Refs.timeCounters[ch][stage] = new_times[new_times.length - 1];
 
-    chart.data.labels.push(...new_times);
-    chart.data.datasets[0].data.push(...channelData);
+      chart.data.labels.push(...new_times);
+      chart.data.datasets[0].data.push(...channelData);
 
-    // 최대 데이터 포인트 관리
-    while (chart.data.labels.length > MAX_DATA_POINTS) {
-      chart.data.labels.shift();
-      chart.data.datasets[0].data.shift();
-    }
+      while (chart.data.labels.length > MAX_DATA_POINTS) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+      }
+      
+      chart.update('none');
+    });
   });
-
-  // 모든 4ch 차트 업데이트
-  ytChannels.forEach((ch) => fig2Refs.charts[ch]?.update('none'));
 }
+
+
 
 // 버튼에 연결
 function setupDataResetButtons() {
@@ -936,6 +948,41 @@ function updateYtValuesDisplay(latestValues) {
 
 
 // ============================================================
+//  데이터 저장 위한 수집
+// ============================================================
+// ❗ [추가] 모든 차트에서 데이터를 수집하는 함수
+function gatherAllChartData() {
+  const allData = {
+    stage3: {
+      labels: fig1.data.labels,
+      datasets: fig1.data.datasets.map(ds => ({ label: ds.label, data: ds.data }))
+    },
+    stage5: {
+      labels: fig3.data.labels,
+      datasets: fig3.data.datasets.map(ds => ({ label: ds.label, data: ds.data }))
+    },
+    stages789: {}
+  };
+
+  ytChannels.forEach(ch => {
+    allData.stages789[ch] = {};
+    ytStages.forEach(stage => {
+      const chart = fig2Refs.charts[ch][stage];
+      if (chart) {
+        allData.stages789[ch][stage] = {
+          labels: chart.data.labels,
+          datasets: chart.data.datasets.map(ds => ({ label: ds.label, data: ds.data }))
+        };
+      }
+    });
+  });
+
+  return allData;
+}
+
+
+
+// ============================================================
 //  [WebSocket 연결 & 데이터 핸들링]
 // ============================================================
 let ws;
@@ -950,76 +997,79 @@ function connectWS() {
   ws.onopen = () => {};
 
   ws.onmessage = (ev) => {
-    try {
-      const m = JSON.parse(ev.data);
+  try {
+    const m = JSON.parse(ev.data);
 
-      if (m.type === 'params') {
-        applyParamsToUI(m.data);
-        return;
+    if (m.type === 'params') {
+      applyParamsToUI(m.data);
+      return;
+    }
+
+    if (m.type === 'frame') {
+      const tRate = Number(m?.params?.target_rate_hz);
+      const dt = tRate > 0 ? 1.0 / tRate : null;
+      const y_block = Array.isArray(m.y_block) ? m.y_block : null;
+      const ravg_block =
+        m.ravg_signals && Array.isArray(m.ravg_signals.series)
+          ? m.ravg_signals.series
+          : null;
+
+      // --- Raw Data (Stage3) 그래프 데이터 처리 ---
+      if (y_block && y_block.length > 0 && dt !== null) {
+        const n1 = y_block.length;
+        const new_times1 = Array.from(
+          { length: n1 },
+          (_, i) => lastTimeX1 + (i + 1) * dt
+        );
+        lastTimeX1 = new_times1[new_times1.length - 1];
+        appendDataToChart(fig1, new_times1, y_block);
       }
 
-      if (m.type === 'frame') {
-        const tRate = Number(m?.params?.target_rate_hz);
-        const dt = tRate > 0 ? 1.0 / tRate : null;
-        const y_block = Array.isArray(m.y_block) ? m.y_block : null;
-        const ravg_block =
-          m.ravg_signals && Array.isArray(m.ravg_signals.series)
-            ? m.ravg_signals.series
-            : null;
-
-        if (y_block && y_block.length > 0 && dt !== null) {
-          const n1 = y_block.length;
-          const new_times1 = Array.from(
-            { length: n1 },
-            (_, i) => lastTimeX1 + (i + 1) * dt
+      // --- Raw Data (Stage5) 그래프 데이터 처리 ---
+      if (ravg_block && ravg_block.length > 0 && dt !== null) {
+        const chCount = ravg_block.length;
+        const sampleCount = Array.isArray(ravg_block[0])
+          ? ravg_block[0].length
+          : 0;
+        if (sampleCount > 0) {
+          const ravg_transposed = Array.from(
+            { length: sampleCount },
+            (_, s) =>
+              Array.from({ length: chCount }, (_, c) => ravg_block[c][s])
           );
-          lastTimeX1 = new_times1[new_times1.length - 1];
-          appendDataToChart(fig1, new_times1, y_block);
+          const n3 = sampleCount;
+          const new_times3 = Array.from(
+            { length: n3 },
+            (_, i) => lastTimeX3 + (i + 1) * dt
+          );
+          lastTimeX3 = new_times3[new_times3.length - 1];
+          appendDataToChart(fig3, new_times3, ravg_transposed);
         }
-
-        if (ravg_block && ravg_block.length > 0 && dt !== null) {
-          const chCount = ravg_block.length;
-          const sampleCount = Array.isArray(ravg_block[0])
-            ? ravg_block[0].length
-            : 0;
-          if (sampleCount > 0) {
-            const ravg_transposed = Array.from(
-              { length: sampleCount },
-              (_, s) =>
-                Array.from({ length: chCount }, (_, c) => ravg_block[c][s])
-            );
-            const n3 = sampleCount;
-            const new_times3 = Array.from(
-              { length: n3 },
-              (_, i) => lastTimeX3 + (i + 1) * dt
-            );
-            lastTimeX3 = new_times3[new_times3.length - 1];
-            appendDataToChart(fig3, new_times3, ravg_transposed);
-          }
-        }
-
-        // [MODIFIED] 4ch 탭의 새 데이터 처리 함수 호출
-        if (m.derived && dt !== null) {
-          appendDataToFig2Charts(m.derived, dt);
-        }
-
-        // ❗ [추가] 실시간 값 표시 기능 호출
-        // 1. m.derived.series 배열에서 각 채널(yt0~yt3)의 '마지막' 값만 추출
+      }
+      
+      // --- 4ch 탭 (Stage 7, 8, 9) 그래프 데이터 처리 ---
+      if (m.derived && m.stage7_y2 && m.stage8_y3 && dt !== null) {
+        appendDataToFig2(m, dt);
+      }
+      
+      // --- 4ch 탭 실시간 텍스트 값 표시 (최종 YT 값만 사용) ---
+      if (m.derived && m.derived.series) {
         const latestYtValues = m.derived.series.map((channelData) =>
           channelData.length > 0 ? channelData[channelData.length - 1] : null
         );
-        // 2. 추출한 최신 값 배열을 새 함수에 전달하여 UI 업데이트
         updateYtValuesDisplay(latestYtValues);
-
-        if (m.stats) {
-          updateStatsDisplay(m.stats);
-        }
-        return;
       }
-    } catch (e) {
-      console.error('WebSocket message parse error', e);
+
+      // --- 헤더 통계 정보 업데이트 ---
+      if (m.stats) {
+        updateStatsDisplay(m.stats);
+      }
+      return;
     }
-  };
+  } catch (e) {
+    console.error('WebSocket message parse error', e);
+  }
+};
 
   ws.onerror = (e) => {
     console.error('[WS] error', e);
@@ -1061,58 +1111,99 @@ resetParamsBtn?.addEventListener('click', async () => {
 
 
 
-// [NEW] 4ch 탭 내부의 뷰 모드(All, yt0, ...) 전환 로직
+// ❗ [수정] 4ch 탭 뷰 모드 전환 로직
 function setupYtViewMode() {
   const buttons = ytViewModeBar.querySelectorAll('.view-mode-btn');
 
   buttons.forEach((btn) => {
     btn.addEventListener('click', () => {
-      buttons.forEach((b) => b.classList.remove('active'));
+      // --- 스타일링 로직 ---
+      buttons.forEach((b) => {
+        b.classList.remove('active');
+        // ❗ [추가] 이전에 적용된 인라인 배경색 스타일을 모두 초기화합니다.
+        b.style.backgroundColor = '';
+      });
       btn.classList.add('active');
+      
       const target = btn.dataset.ytTarget;
+      const channelIndex = ytChannels.indexOf(target); // yt0=0, yt1=1, ...
 
+      // ❗ [추가] yt1, yt2, yt3일 때만 동적으로 배경색을 변경합니다.
+      // channelIndex가 1 이상일 경우 (yt1, yt2, yt3)
+      if (channelIndex >= 1) {
+        // palette 배열에서 해당 채널의 색상을 가져와 버튼 배경색으로 직접 설정
+        btn.style.backgroundColor = palette[channelIndex];
+      }
+      
+      // --- 레이아웃 변경 로직 (기존과 동일) ---
       if (target === 'all') {
+        fig2GridContainer.classList.add('all-view');
         fig2GridContainer.classList.remove('single-view');
         ytChannels.forEach((ch) => {
           fig2Refs.wrappers[ch].classList.remove('visible');
         });
       } else {
         fig2GridContainer.classList.add('single-view');
+        fig2GridContainer.classList.remove('all-view');
         ytChannels.forEach((ch) => {
           fig2Refs.wrappers[ch].classList.toggle('visible', ch === target);
         });
       }
 
+      // --- 차트 리사이즈 로직 (기존과 동일) ---
       setTimeout(() => {
-        Object.values(fig2Refs.charts).forEach((chart) => chart.resize());
+        Object.values(fig2Refs.charts).forEach((channelCharts) => {
+          Object.values(channelCharts).forEach(chart => chart.resize());
+        });
       }, 0);
     });
   });
+   
+  document.querySelector('.view-mode-btn[data-yt-target="all"]').click();
 }
+
 
 // ============================================================
 //  [초기 실행]
 // ============================================================
 
-// [NEW] 4ch 탭의 4개 차트 인스턴스 생성 및 이벤트 리스너 설정
-ytChannels.forEach((ch, index) => {
-  fig2Refs.charts[ch] = makeChart(fig2Refs.contexts[ch], {
-    xTitle: 'Time (s)',
-    yTitle: `${ch} (unit)`,
-    decimation: false,
-  });
+// 4개 채널 x 3개 스테이지 차트 인스턴스 생성 및 이벤트 리스너 설정
+ytChannels.forEach((ch) => {
+  ytStages.forEach(stage => {
+    const chartCtx = fig2Refs.contexts[ch][stage];
+    if (!chartCtx) return;
 
-  fig2Refs.contexts[ch].addEventListener('dblclick', () =>
-    fig2Refs.charts[ch].resetZoom()
-  );
-  fig2Refs.zoomResetButtons[ch].addEventListener('click', () =>
-    fig2Refs.charts[ch].resetZoom()
-  );
-  fig2Refs.dataResetButtons[ch].addEventListener('click', () =>
-    resetYtChartData(ch)
-  );
+    // 차트 생성
+    fig2Refs.charts[ch][stage] = makeChart(chartCtx, {
+      xTitle: 'Time (s)',
+      yTitle: `${ch} ${stage} (unit)`,
+      decimation: false, // 상세 뷰이므로 데시메이션 비활성화
+    });
+    
+    // 이벤트 리스너 연결을 위한 DOM 요소 ID 가져오기
+    const dataResetBtn = document.getElementById(`dataReset2_${ch}_${stage}`);
+    const zoomResetBtn = document.getElementById(`resetZoom2_${ch}_${stage}`);
+    
+    // 이벤트 리스너 할당
+    chartCtx.addEventListener('dblclick', () => fig2Refs.charts[ch][stage].resetZoom());
+    zoomResetBtn?.addEventListener('click', () => fig2Refs.charts[ch][stage].resetZoom());
+    dataResetBtn?.addEventListener('click', () => {
+      // 개별 차트 데이터 리셋 로직
+      const chart = fig2Refs.charts[ch][stage];
+      if (!chart) return;
+
+      fig2Refs.timeCounters[ch][stage] = 0;
+      chart.data.labels = [];
+      chart.data.datasets.forEach((ds) => (ds.data = []));
+      chart.options.scales.x.min = 0;
+      chart.options.scales.x.max = undefined;
+      chart.resetZoom?.();
+      chart.update('none');
+    });
+  });
 });
 
+// --- 필수 함수들 호출 ---
 connectWS();
 fetchParams();
 setupYAxisControls();
@@ -1121,9 +1212,48 @@ applyRawViewMode('both');
 setupViewModeButtons();
 setupYtViewMode(); // 4ch 탭 뷰 모드 활성화
 
-
-
+// 'Reset' 탭 버튼 이벤트 리스너
 const globalResetBtn = document.getElementById('globalResetBtn');
 if (globalResetBtn) {
   globalResetBtn.addEventListener('click', resetAllChartData);
+}
+
+
+
+// ============================================================
+//  [파일 저장]
+// ============================================================
+// ❗ [추가] Save 버튼 이벤트 리스너
+const saveDataBtn = document.getElementById('saveDataBtn');
+if (saveDataBtn) {
+  saveDataBtn.addEventListener('click', async () => {
+    // 1. 사용자에게 저장 여부 확인
+    if (!confirm("지금까지의 누적 데이터를 CSV 파일로 저장하시겠습니까?")) {
+      return; // '아니오' 선택 시 아무것도 하지 않음
+    }
+
+    try {
+      // 2. 모든 차트에서 데이터 수집
+      const chartData = gatherAllChartData();
+
+      // 3. 백엔드 API로 데이터 전송
+      const response = await fetch('/api/save_data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(chartData),
+      });
+
+      const result = await response.json();
+
+      // 4. 결과에 따라 사용자에게 피드백
+      if (result.ok) {
+        alert(`데이터가 성공적으로 저장되었습니다.\n경로: ${result.message}`);
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (e) {
+      console.error("데이터 저장 실패:", e);
+      alert(`데이터 저장 중 오류가 발생했습니다: ${e.message}`);
+    }
+  });
 }

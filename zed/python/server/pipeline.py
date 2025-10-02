@@ -67,6 +67,8 @@ class CProcSource(SourceBase):
     FT_STAGE3 = 0x01  # 8ch (Stage3: 시간평균까지 끝난 원신호 블록)
     FT_STAGE5 = 0x02  # 4ch Ravg (Stage5)
     FT_YT     = 0x03  # 4ch 최종 yt
+    FT_STAGE7_Y2 = 0x04  # y2 2차 함수 계산 처리 다항식함수 까지
+    FT_STAGE8_Y3 = 0x05  # y3 2차 보정 처리 다항식 함수 또는 6번과 유사한 분수함수 까지
 
     def __init__(self, params: PipelineParams):
         # ❗ [최종 수정] C 프로그램에 전달할 6개 핵심 파라미터를 리스트로 구성
@@ -232,6 +234,9 @@ class Pipeline:
         self.broadcast_fn = broadcast_fn # app.py의 broadcast_fn을 직접 사용
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        
+        # ❗ [추가] 데이터 처리 시작 시간을 기록할 변수
+        self.start_time: Optional[float] = None
 
         # params.mode에 따라 데이터 소스(C 또는 Synthetic)를 결정
         if self.params.mode == "cproc":
@@ -250,6 +255,8 @@ class Pipeline:
         self._last_yt_time = None
         self._last_stats = None
         self._last_ravg = None
+        self._last_y2   = None
+        self._last_y3   = None
         self._last_yt   = None
         self._pending_stage3_block = None
         self._pending_ts = None
@@ -308,6 +315,11 @@ class Pipeline:
         while not self._stop.is_set():
             try:
                 ftype, block = self.src.read_frame()
+                
+                # ❗ [추가] 첫 데이터 프레임 수신 시, 현재 시간을 start_time으로 기록
+                if self.start_time is None and block.size > 0:
+                    self.start_time = time.time()
+                
             except EOFError: break
             except Exception as e:
                 print(f"[pipeline] read_frame error: {e}")
@@ -322,6 +334,16 @@ class Pipeline:
             elif ftype == CProcSource.FT_STAGE5:
                 series = [block[:, k].tolist() for k in range(min(4, n_ch))]
                 self._last_ravg = {"names": [f"Ravg{k}" for k in range(len(series))], "series": series}
+            
+            # ❗ [추가] 신규 프레임 타입 처리
+            elif ftype == CProcSource.FT_STAGE7_Y2:
+                series = [block[:, k].tolist() for k in range(min(4, n_ch))]
+                self._last_y2 = {"names": [f"y2_{k}" for k in range(len(series))], "series": series}
+            elif ftype == CProcSource.FT_STAGE8_Y3:
+                series = [block[:, k].tolist() for k in range(min(4, n_ch))]
+                self._last_y3 = {"names": [f"y3_{k}" for k in range(len(series))], "series": series}    
+                
+                
             elif ftype == CProcSource.FT_YT:
                 series = [block[:, k].tolist() for k in range(min(4, n_ch))]
                 self._last_yt = {"names": self.params.label_names[:len(series)], "series": series}
@@ -348,7 +370,11 @@ class Pipeline:
                         "n_ch": int(self._pending_stage3_block.shape[1]),
                         "block": {"n": int(self._pending_stage3_block.shape[0])},
                         "params": {"target_rate_hz": self.params.target_rate_hz},
-                        "ravg_signals": self._last_ravg, "derived": self._last_yt, "stats": self._last_stats,
+                        "ravg_signals": self._last_ravg,
+                        "stage7_y2": self._last_y2,
+                        "stage8_y3": self._last_y3,
+                        "derived": self._last_yt,
+                        "stats": self._last_stats,
                     }
                     
                     # ❗ app.py의 WebSocket 루프가 사용할 수 있도록 큐에 직접 삽입

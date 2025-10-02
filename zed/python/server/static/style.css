@@ -232,11 +232,31 @@ footer {
   font-weight: 500;
   transition: all 0.2s ease;
   min-width: 140px;
-  border-top-right-radius: 16px;
 }
 
 
 .resetbtn:hover {
+  background: var(--panel-hover);
+  color: var(--text, #fff);
+}
+
+
+/* 기본 스타일: .tab-btn과 동일하게 설정하여 시각적 일관성 유지 */
+.savetbtn {
+  background: var(--panel);
+  border: none;
+  border-bottom: 2px solid transparent; /* 선택 안된 탭은 보더 안 보이게 */
+  padding: 10px 16px;
+  color: var(--text-muted, #aaa);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: 140px;
+  border-top-right-radius: 16px;
+}
+
+
+.savetbtn:hover {
   background: var(--panel-hover);
   color: var(--text, #fff);
 }
@@ -515,7 +535,6 @@ margin-top: 16px;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(2, 1fr);
   gap: 16px;
-  height: 650px;
   width: 100%;
 }
 
@@ -523,10 +542,6 @@ margin-top: 16px;
 .yt-chart-wrapper {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
-  background-color: #232429; /* 살짝 다른 배경색으로 구분 */
   min-width: 0; /* 그리드 내부 요소가 넘치는 것을 방지 */
 }
 
@@ -621,4 +636,70 @@ margin-top: 16px;
 
 .control-group:has(#ytValuesDisplay) {
   margin-top: 4px; /* 이 값을 조절하여 블록 전체를 원하는 만큼 아래로 내릴 수 있습니다. */
+}
+
+
+/* ===================== [4ch 탭 3x1 레이아웃 스타일] ===================== */
+
+/* ===================== [4ch 탭 동적 레이아웃 스타일] ===================== */
+
+/* --- 뷰 모드별 컨테이너 레이아웃 --- */
+
+/* 'All' 뷰: 2x2 그리드 레이아웃 */
+#fig2GridContainer.all-view {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 16px;
+}
+
+/* 'Single' 뷰: 단일 컬럼(블록) 레이아웃 */
+#fig2GridContainer.single-view {
+  display: block;
+}
+
+
+/* --- 채널(yt_Wrapper) 및 스테이지(sub-chart-block) 표시 제어 --- */
+
+/* 'Single' 뷰일 때: 'visible' 클래스가 없는 채널은 숨김 */
+#fig2GridContainer.single-view .yt-chart-wrapper:not(.visible) {
+  display: none;
+}
+
+/* 'All' 뷰일 때: 중간 단계(y2, y3) 그래프는 숨기고 최종(yt) 그래프만 표시 */
+#fig2GridContainer.all-view .sub-chart-block[data-stage="y2"],
+#fig2GridContainer.all-view .sub-chart-block[data-stage="y3"] {
+  display: none;
+}
+
+
+/* --- 공통 내부 스타일 --- */
+
+/* 채널 래퍼: 기본적으로 세로 Flexbox (3x1 레이아웃의 기반) */
+.yt-chart-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* 개별 스테이지(서브 차트) 블록 스타일 */
+.sub-chart-block {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background-color: #232429;
+  flex: 1; /* 남은 공간을 균등하게 차지하여 3x1 비율 유지 */
+}
+
+.sub-chart-block .chart-container {
+  flex-grow: 1;
+}
+
+
+/* ❗ [추가] 'All' 뷰일 때 각 차트 컨테이너의 높이를 지정합니다. */
+#fig2GridContainer.all-view .chart-container {
+  height: 300px; /* 2x2 그리드에 맞는 적절한 높이로 조절 */
 }

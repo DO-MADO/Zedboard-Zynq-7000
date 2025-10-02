@@ -26,6 +26,8 @@
 #else
   #include <unistd.h>  
   #include <fcntl.h> 
+  #include <termios.h>   //  추가: UART 설정용
+  #include <errno.h>     //  추가: 오류 문자열용
 #endif
 
 // ---------- Block header (kept as before) ----------
@@ -41,45 +43,11 @@
 enum {
     FT_STAGE3_8CH = 1,
     FT_STAGE5_4CH = 2,
-    FT_STAGE9_YT4 = 3
+    FT_STAGE9_YT4 = 3,
+    FT_STAGE7_Y2 = 4,
+    FT_STAGE8_Y3 = 5
 };
 
-
-// ---------- RS485 OUTPUT SETTING ----------
-#ifndef _WIN32
-#include <termios.h>
-int fd_rs485 = -1;
-
-int init_rs485(const char* dev, int baud) {
-    int fd = open(dev, O_WRONLY | O_NOCTTY | O_SYNC);
-    if (fd < 0) { perror("open RS485"); return -1; }
-
-    struct termios tty;
-    memset(&tty, 0, sizeof tty);
-    if (tcgetattr(fd, &tty) != 0) { perror("tcgetattr"); close(fd); return -1; }
-
-    cfsetospeed(&tty, baud);
-    cfsetispeed(&tty, baud);
-
-    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
-    tty.c_iflag &= ~IGNBRK;
-    tty.c_lflag = 0;
-    tty.c_oflag = 0;
-    tty.c_cc[VMIN]  = 0;
-    tty.c_cc[VTIME] = 5;
-
-    tty.c_cflag |= (CLOCAL | CREAD);
-    tty.c_cflag &= ~(PARENB | PARODD);
-    tty.c_cflag &= ~CSTOPB;
-    tty.c_cflag &= ~CRTSCTS;
-
-    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
-        perror("tcsetattr"); close(fd); return -1;
-    }
-
-    return fd;
-}
-#endif
 
 
 // ---------- Parameters (Python PipelineParams mirror) ----------
@@ -232,14 +200,116 @@ static void check_and_process_stdin(SignalParams* P) {
     }
 }
 
-int main(int argc, char **argv) {
-#ifndef _WIN32
-    // RS485 초기화 현재 하드 코딩 장치 잡히는 경로와 통신 속도 따라서 수정 필요함
-    fd_rs485 = init_rs485("/dev/ttyUSB0", B115200);
-    if (fd_rs485 < 0) {
-        fprintf(stderr, "WARN: RS485 not available, continue with stdout only\n");
+
+// ---------- UART helper ----------
+#ifdef _WIN32
+// Windows용 UART 핸들러 (HANDLE 타입 반환)
+static HANDLE open_uart(const char *dev, int baud)
+{
+    HANDLE hSerial;
+    char port_name[20];
+    snprintf(port_name, sizeof(port_name), "\\\\.\\%s", dev);
+
+    hSerial = CreateFile(
+        port_name,
+        GENERIC_READ | GENERIC_WRITE,
+        0, 0,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        0
+    );
+
+    if (hSerial == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "ERR: cannot open %s (Error: %lu)\n", port_name, GetLastError());
+        return INVALID_HANDLE_VALUE;
     }
+
+    DCB dcbSerialParams = {0};
+    dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
+    if (!GetCommState(hSerial, &dcbSerialParams)) {
+        fprintf(stderr, "ERR: GetCommState failed (Error: %lu)\n", GetLastError());
+        CloseHandle(hSerial);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    dcbSerialParams.BaudRate = CBR_115200;
+    dcbSerialParams.ByteSize = 8;
+    dcbSerialParams.StopBits = ONESTOPBIT;
+    dcbSerialParams.Parity   = NOPARITY;
+
+    if(!SetCommState(hSerial, &dcbSerialParams)){
+        fprintf(stderr, "ERR: SetCommState failed (Error: %lu)\n", GetLastError());
+        CloseHandle(hSerial);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    return hSerial;
+}
+#else
+// 기존 Linux용 open_uart 코드는 그대로 둡니다.
+static int open_uart(const char *dev, int baud)
+{
+    int fd = open(dev, O_RDWR | O_NOCTTY | O_SYNC);
+    if (fd < 0) {
+        fprintf(stderr, "ERR: cannot open %s (%s)\n", dev, strerror(errno));
+        return -1;
+    }
+
+    struct termios tty;
+    if (tcgetattr(fd, &tty) != 0) {
+        fprintf(stderr, "ERR: tcgetattr (%s)\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    cfsetospeed(&tty, B115200);
+    cfsetispeed(&tty, B115200);
+
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
+    tty.c_iflag &= ~IGNBRK;
+    tty.c_lflag = 0;
+    tty.c_oflag = 0;
+    tty.c_cc[VMIN]  = 0;
+    tty.c_cc[VTIME] = 5;
+
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+    tty.c_cflag |= (CLOCAL | CREAD);
+    tty.c_cflag &= ~(PARENB | PARODD);
+    tty.c_cflag &= ~CSTOPB;
+    tty.c_cflag &= ~CRTSCTS;
+
+    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
+        fprintf(stderr, "ERR: tcsetattr (%s)\n", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    return fd;
+}
 #endif
+
+
+
+int main(int argc, char **argv) {
+
+    #ifdef _WIN32
+        HANDLE uart_h = INVALID_HANDLE_VALUE;
+    #else
+        int uart_fd = -1;
+    #endif
+
+    #ifdef _WIN32
+        uart_h = open_uart("COM3", 115200);
+        if (uart_h != INVALID_HANDLE_VALUE) {
+            fprintf(stderr, "[INFO] UART COM3 opened @115200\n");
+        }
+    #else
+        uart_fd = open_uart("/dev/ttyPS1", 115200);
+        if (uart_fd >= 0) {
+            fprintf(stderr, "[INFO] UART /dev/ttyPS1 opened @115200\n");
+        }
+    #endif
+
 
     // ❗ [최종 수정] ---------- CLI (명령줄 인자 처리) ----------
     // Python에서 보내는 6개의 핵심 파라미터를 인자로 받습니다.
@@ -353,6 +423,8 @@ int main(int argc, char **argv) {
     float *R_buf    = (float*)malloc(sizeof(float) * (size_t)max_ta_out);
     float *Ravg_buf = (float*)malloc(sizeof(float) * (size_t)max_ta_out);
     float *S5_out   = (float*)malloc(sizeof(float) * (size_t)max_ta_out * 4);
+    float *Y2_out   = (float*)malloc(sizeof(float) * (size_t)max_ta_out * 4);
+    float *Y3_out   = (float*)malloc(sizeof(float) * (size_t)max_ta_out * 4);
     float *YT_out   = (float*)malloc(sizeof(float) * (size_t)max_ta_out * 4);
 
     if (!raw_f32 || !lpf_f32 || !chan_buf || !ta_combined || !ta_out ||
@@ -482,6 +554,8 @@ int main(int argc, char **argv) {
                     const double y1  = y1n / ((fabs(y1d) < 1e-12) ? 1e-12 : y1d);
                     const double y2  = polyval_f64(P.y2_coeffs, P.y2_coeffs_len, y1);
                     const double y3  = polyval_f64(P.y3_coeffs, P.y3_coeffs_len, y2);
+                    Y2_out[t * 4 + q] = (float)y2;
+                    Y3_out[t * 4 + q] = (float)y3;
                     YT_out[t * 4 + q] = (float)(P.E * y3 + P.F);
                 }
             }
@@ -496,6 +570,26 @@ int main(int argc, char **argv) {
                 fflush(stdout);
             }
 
+             // ❗ ---- [추가] Stage7 frame emit (4ch Y2) ----
+            {
+                uint8_t ft = (uint8_t)FT_STAGE7_Y2;
+                block_hdr_t h7 = { (uint32_t)n_ta, 4u };
+                fwrite(&ft, 1, 1, stdout);
+                fwrite(&h7, sizeof(h7), 1, stdout);
+                fwrite(Y2_out, sizeof(float), (size_t)n_ta * 4, stdout);
+                fflush(stdout);
+            }
+
+            // ❗ ---- [추가] Stage8 frame emit (4ch Y3) ----
+            {
+                uint8_t ft = (uint8_t)FT_STAGE8_Y3;
+                block_hdr_t h8 = { (uint32_t)n_ta, 4u };
+                fwrite(&ft, 1, 1, stdout);
+                fwrite(&h8, sizeof(h8), 1, stdout);
+                fwrite(Y3_out, sizeof(float), (size_t)n_ta * 4, stdout);
+                fflush(stdout);
+            }
+
             // ---- Stage9 frame emit (4ch YT) ----
             {
                 uint8_t ft = (uint8_t)FT_STAGE9_YT4;
@@ -507,28 +601,42 @@ int main(int argc, char **argv) {
                 fwrite(YT_out, sizeof(float), (size_t)n_ta * 4, stdout);
                 fflush(stdout);
 
-            #ifndef _WIN32
-                // RS485  이진 바이너리 출력 필요시 ASCII 변환하면 됨
-                if (fd_rs485 >= 0) {
-                    write(fd_rs485, &ft, 1);
-                    write(fd_rs485, &h9, sizeof(h9));
-                    write(fd_rs485, YT_out, sizeof(float) * (size_t)n_ta * 4);
-                    // tcdrain(fd_rs485);  // (선택) 버퍼 모두 송신 완료까지 대기
-                }
-            #endif
             } // Stage9 emit block 종료
+
+           // UART 로그 출력
+            #ifdef _WIN32
+                    if (uart_h != INVALID_HANDLE_VALUE) {
+                        char buffer[256];
+                        for (int t = 0; t < n_ta; t++) {
+                            int len = snprintf(buffer, sizeof(buffer), "YT[%d] = %.3f, %.3f, %.3f, %.3f\r\n",
+                                t, YT_out[t*4+0], YT_out[t*4+1], YT_out[t*4+2], YT_out[t*4+3]);
+                            DWORD bytes_written;
+                            WriteFile(uart_h, buffer, (DWORD)len, &bytes_written, NULL);
+                        }
+                    }
+            #else
+                    if (uart_fd >= 0) {
+                        for (int t = 0; t < n_ta; t++) {
+                            dprintf(uart_fd, "YT[%d] = %.3f, %.3f, %.3f, %.3f\r\n",
+                                t, YT_out[t*4+0], YT_out[t*4+1], YT_out[t*4+2], YT_out[t*4+3]);
+                        }
+                    }
+            #endif
+           
         } 
     }    
     // ---------- Cleanup ----------
-    free(YT_out); free(S5_out); free(Ravg_buf); free(R_buf);
+    free(Y3_out); free(Y2_out); free(YT_out); free(S5_out); free(Ravg_buf); free(R_buf);
     free(ta_out); free(ta_combined); free(chan_buf); free(lpf_f32); free(raw_f32);
     free(S.avg_tail); free(S.lpf_state);
     iio_buffer_destroy(buf);
     free(in_ch); free(scales);
     iio_context_destroy(ctx);
-#ifndef _WIN32
-    if (fd_rs485 >= 0) close(fd_rs485);
-#endif
+    /* 추가: UART 닫기 */
+    #ifdef _WIN32
+    if (uart_h != INVALID_HANDLE_VALUE) CloseHandle(uart_h);
+    #else
+    if (uart_fd >= 0) close(uart_fd);
+    #endif
     return 0;
 }
-    

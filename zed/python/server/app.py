@@ -4,6 +4,7 @@ import importlib.util
 from dataclasses import asdict # ❗ asdict 임포트 확인
 from pathlib import Path
 import sys
+import pandas as pd
 from typing import Optional, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
@@ -13,7 +14,8 @@ import uvicorn
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict # ❗ [추가] Dict 임포트
 from copy import deepcopy
-
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 # -----------------------------
@@ -39,7 +41,21 @@ PipelineParams = adc_pipeline.PipelineParams
 # -----------------------------
 # Pydantic 모델
 # -----------------------------
-# ❗ [최종 수정] ParamsIn 모델: UI에서 보내는 모든 파라미터 정의
+
+# ❗ [추가] Chart.js의 단일 데이터셋 구조를 정확히 반영하는 모델
+class Dataset(BaseModel):
+    label: Optional[str] = None
+    data: List[float]
+
+# ❗ [수정] ChartData 모델이 새로운 Dataset 모델을 사용하도록 변경
+class ChartData(BaseModel):
+    labels: List[float]
+    datasets: List[Dataset] # List[Dict[...]] -> List[Dataset]
+
+class AllChartData(BaseModel):
+    stage3: ChartData
+    stage5: ChartData
+    stages789: Dict[str, Dict[str, ChartData]]
 
 # ❗ [수정] ParamsIn 모델을 아래와 같이 분리/수정
 class CoeffsUpdate(BaseModel):
@@ -75,6 +91,105 @@ def _with_legacy_keys(p: dict) -> dict:
 @app.get("/")
 async def index():
     return FileResponse(STATIC / "index.html")
+
+
+# ❗ [추가] 데이터 처리 및 CSV 저장을 위한 헬퍼 함수
+def process_and_save_csv(all_data: AllChartData, file_path: Path, start_ts: float):
+    """
+    모든 차트 데이터를 병합하여 단일 CSV 파일로 저장합니다. (리샘플링 없음)
+    """
+    all_series = []
+    
+    # ❗ [수정] start_ts 인자를 받도록 시그니처 변경
+    def create_series_from_chart_data(chart_data: ChartData, base_name: str, start_ts: float) -> list:
+        series_list = []
+        if not chart_data.labels or not chart_data.datasets:
+            return []
+            
+        # ❗ [1. 시간대 설정] 한국 시간(KST, UTC+9)을 정의합니다.
+        kst = ZoneInfo("Asia/Seoul")
+        
+        num_datasets = len(chart_data.datasets)
+
+        for i, ds in enumerate(chart_data.datasets):
+            if not ds.data: continue
+            
+            # 상대 시간(label)을 절대 시간(Unix timestamp)으로 변환
+            absolute_timestamps = [start_ts + label for label in chart_data.labels]
+            # ❗ [1. 시간대 설정] Unix timestamp를 KST 기준 datetime 객체로 변환
+            datetime_index = [datetime.fromtimestamp(ts, tz=kst) for ts in absolute_timestamps]
+            
+            df = pd.DataFrame(index=datetime_index, data={'value': ds.data})
+            
+            # ❗ [2. 1초 단위 로그 수집] 데이터를 1초 간격으로 리샘플링하고 평균값을 사용
+            df = df.resample('1S').mean()
+            
+            if num_datasets > 1:
+                col_name = f"{base_name}_{ds.label or i}"
+            else:
+                col_name = base_name
+
+            df.rename(columns={'value': col_name}, inplace=True)
+            series_list.append(df)
+        return series_list
+
+    # ❗ [수정] create_series_from_chart_data 호출 시 start_ts 전달
+    all_series.extend(create_series_from_chart_data(all_data.stage3, 'S3', start_ts))
+    all_series.extend(create_series_from_chart_data(all_data.stage5, 'S5', start_ts))
+    for ch, stages in all_data.stages789.items():
+        for stage, data in stages.items():
+            prefix = f"{ch}_{stage}"
+            all_series.extend(create_series_from_chart_data(data, prefix, start_ts))
+            
+    if not all_series:
+        return
+
+    final_df = pd.concat(all_series, axis=1)
+    final_df.sort_index(inplace=True)
+    
+    # ❗ [추가] CSV로 저장하기 전, 인덱스(시간)의 형식을 원하는 문자열로 변경합니다.
+    # '%Y-%m-%d %H:%M:%S.%f'는 마이크로초(6자리)까지 표시, .str[:-3]으로 밀리초(3자리)에서 자름
+    final_df.index = final_df.index.strftime('%Y-%m-%d %H:%M:%S.%f').str[:-3]
+    
+    # ❗ [수정] CSV 저장 시 인덱스 컬럼명을 'Timestamp'로 변경
+    final_df.to_csv(file_path, float_format='%.6f', index_label='Timestamp')
+
+
+
+
+# ❗ [추가] 데이터 저장을 위한 새로운 API 엔드포인트
+@app.post("/api/save_data")
+async def save_data(data: AllChartData):
+    try:
+        # --- 파일 경로 설정 (기존과 동일) ---
+        log_base_dir = Path("../../logs")
+        today_str = datetime.now().strftime('%Y.%m.%d')
+        log_dir = log_base_dir / today_str
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        base_filename = "log_data"
+        counter = 0
+        while True:
+            suffix = "" if counter == 0 else str(counter)
+            file_path = log_dir / f"{base_filename}{suffix}.csv"
+            if not file_path.exists():
+                break
+            counter += 1
+            
+        # ❗ [추가] pipeline에서 데이터 시작 시간(Unix timestamp)을 가져옵니다.
+        start_timestamp = app.state.pipeline.start_time
+        if start_timestamp is None:
+            # 데이터가 아직 수신되지 않은 경우, 현재 시간을 기준으로 합니다.
+            start_timestamp = time.time()
+            
+        # ❗ [수정] 데이터 처리 함수 호출 시 start_timestamp 전달
+        process_and_save_csv(data, file_path, start_timestamp)
+        
+        return {"ok": True, "message": f"Data saved to {file_path}"}
+    except Exception as e:
+        print(f"[ERROR] Failed to save data: {e}")
+        return {"ok": False, "message": str(e)}
+
 
 
 
