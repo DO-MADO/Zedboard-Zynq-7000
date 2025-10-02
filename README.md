@@ -2,6 +2,17 @@
 
 <br>
 
+
+
+<h1>⚠️V2 작업중</h1>
+
+- C 기반 리팩토링 <br>
+- 독립형 임베디드 장치 
+
+<img width="1013" height="1111" alt="보드DSP처리(C로직에서PYTHON)" src="https://github.com/user-attachments/assets/e2f9c16b-f01b-42a2-b4d4-2890ed1d5fd8" />
+<img width="1920" height="1080" alt="제목을-입력해주세요_-001" src="https://github.com/user-attachments/assets/ebc3a5d0-2994-4a10-8efd-b82b7549889f" />
+
+
 ## 🚀 프로젝트 개요
 
 이 프로젝트는 **AD4858 + Zynq-7000** 기반 **다채널 ADC** 스트리밍을 실시간으로 처리하고 **웹 기반 시각화**까지 제공하는 데모입니다.
@@ -166,6 +177,7 @@ static/testPage/testStyle.css
 <img width="884" height="1612" alt="C언어(IIO READ 전환 후) 성능표" src="https://github.com/user-attachments/assets/8fedafab-c1cf-4eaa-a674-f6e4b0c9ea22" />
 <img width="1700" height="1300" alt="★ADC보드체널별수식가이드" src="https://github.com/user-attachments/assets/85727c97-2915-4924-a435-96dd4ba1656e" />
 <img width="1857" height="743" alt="식스파이버즈_광파장에따른볼트참고자료" src="https://github.com/user-attachments/assets/d0239c19-afcb-44a2-8b7c-2b1b947ca74a" />
+
 
 
 
