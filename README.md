@@ -10,7 +10,7 @@
 - 독립형 임베디드 장치 
 
 <img width="1013" height="1111" alt="보드DSP처리(C로직에서PYTHON)" src="https://github.com/user-attachments/assets/e2f9c16b-f01b-42a2-b4d4-2890ed1d5fd8" />
-<img width="1920" height="1080" alt="제목을-입력해주세요_-001" src="https://github.com/user-attachments/assets/ebc3a5d0-2994-4a10-8efd-b82b7549889f" />
+<img width="1920" height="1080" alt="제목을-입력해주세요_-001 (1)" src="https://github.com/user-attachments/assets/df4f7d6a-e00c-42f5-9d42-14295b2eabb5" />
 
 
 ## 🚀 프로젝트 개요
