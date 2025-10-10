@@ -1,0 +1,17 @@
+[Unit]
+Description=ADC Data Server (FastAPI + iio_reader)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=/root/start.sh
+Restart=always
+Environment=PYTHONUNBUFFERED=1
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
