@@ -170,7 +170,7 @@ zed/
 <br>
 
 
-<h2>🖼️ PC 모니터링 화면 상세 설명</h2>
+<h1>🟡 PC 모니터링 화면 상세 설명 🟢</h1>
 
 
 <img width="1913" height="899" alt="RawData탭_설명" src="https://github.com/user-attachments/assets/149951b9-32c8-463f-94cc-e1502c787101" />
