@@ -461,7 +461,7 @@ __api __check_ret struct iio_context * iio_create_network_context(const char *ho
  * - Network backend, "ip:"\n Requires a hostname, IPv4, or IPv6 to connect to
  *   a specific running IIO Daemon or no address part for automatic discovery
  *   when library is compiled with ZeroConf support. For example
- *   <i>"ip:192.168.2.1"</i>, <b>or</b> <i>"ip:localhost"</i>, <b>or</b> <i>"ip:"</i>
+ *   <i>"ip:192.500.500.500"</i>, <b>or</b> <i>"ip:localhost"</i>, <b>or</b> <i>"ip:"</i>
  *   <b>or</b> <i>"ip:plutosdr.local"</i>. To support alternative port numbers the
  *   standard <i>ip:host:port</i> format is used. A special format is required as
  *   defined in RFC2732 for IPv6 literal hostnames, (adding '[]' around the host)
@@ -471,8 +471,8 @@ __api __check_ret struct iio_context * iio_create_network_context(const char *ho
  *     - ip::40000                                         Any host on port 40000
  *     - ip:analog.local                                   Default port
  *     - ip:brain.local:40000                              Port 40000
- *     - ip:192.168.1.119                                  Default Port
- *     - ip:192.168.1.119:40000                            Port 40000
+ *     - ip:192.500.500.500                                  Default Port
+ *     - ip:192.500.500.500:40000                            Port 40000
  *     - ip:2601:190:400:da:47b3:55ab:3914:bff1            Default Port
  *     - ip:[2601:190:400:da:9a90:96ff:feb5:acaa]:40000    Port 40000
  *     - ip:fe80::f14d:3728:501e:1f94%eth0                 Link-local through eth0, default port

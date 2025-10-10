@@ -7,7 +7,10 @@ from dataclasses import asdict
 from pathlib import Path
 import sys
 import os
+import time
 import pandas as pd
+from fastapi.responses import FileResponse
+
 
 # typing은 Python 3.7에서도 사용 가능하지만 list[str] 같은 최신 문법은 X
 from typing import Optional, List, Dict
@@ -30,6 +33,10 @@ from fastapi.responses import FileResponse, HTMLResponse
 # Paths
 # -----------------------------
 ROOT = Path(__file__).resolve().parent
+if ROOT.name == "server":
+    LOG_BASE_DIR = (ROOT.parent.parent / "logs").resolve()
+else:
+    LOG_BASE_DIR = (ROOT / "logs").resolve()
 STATIC = ROOT / "static"
 PIPELINE_PATH = ROOT / "pipeline.py"
 COEFFS_JSON = ROOT / "coeffs.json"
@@ -100,6 +107,7 @@ def _with_legacy_keys(p):
 # -----------------------------
 # Routes
 # -----------------------------
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -107,6 +115,15 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/api/download")
+async def download_file():
+    latest_file = max(LOG_BASE_DIR.glob("**/*.csv"), key=lambda f: f.stat().st_mtime)
+    return FileResponse(
+        path=latest_file,
+        filename=latest_file.name,
+        media_type="text/csv"
+    )
 
 
 # 데이터 처리 및 CSV 저장 헬퍼
@@ -169,9 +186,7 @@ def process_and_save_csv(all_data, file_path, start_ts):
 @app.post("/api/save_data")
 async def save_data(data: AllChartData):
     try:
-        log_base_dir = Path("../../logs")
-        today_str = datetime.now().strftime('%Y.%m.%d')
-        log_dir = log_base_dir / today_str
+        log_dir = LOG_BASE_DIR / datetime.now().strftime('%Y.%m.%d')
         log_dir.mkdir(parents=True, exist_ok=True)
 
         base_filename = "log_data"
@@ -185,11 +200,10 @@ async def save_data(data: AllChartData):
 
         start_timestamp = getattr(app.state.pipeline, "start_time", None)
         if start_timestamp is None:
-            import time
             start_timestamp = time.time()
 
         process_and_save_csv(data, file_path, start_timestamp)
-        return {"ok": True, "message": "Data saved to {}".format(file_path)}
+        return {"ok": True, "message": "Data saved to {}".format(file_path.resolve())}
     except Exception as e:
         print("[ERROR] Failed to save data: {}".format(e))
         return {"ok": False, "message": str(e)}

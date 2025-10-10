@@ -1225,18 +1225,16 @@ if (globalResetBtn) {
 // ============================================================
 // ❗ [추가] Save 버튼 이벤트 리스너
 const saveDataBtn = document.getElementById('saveDataBtn');
+// Save 버튼 이벤트 리스너
 if (saveDataBtn) {
   saveDataBtn.addEventListener('click', async () => {
-    // 1. 사용자에게 저장 여부 확인
     if (!confirm("지금까지의 누적 데이터를 CSV 파일로 저장하시겠습니까?")) {
-      return; // '아니오' 선택 시 아무것도 하지 않음
+      return;
     }
 
     try {
-      // 2. 모든 차트에서 데이터 수집
       const chartData = gatherAllChartData();
 
-      // 3. 백엔드 API로 데이터 전송
       const response = await fetch('/api/save_data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1245,9 +1243,12 @@ if (saveDataBtn) {
 
       const result = await response.json();
 
-      // 4. 결과에 따라 사용자에게 피드백
       if (result.ok) {
         alert(`데이터가 성공적으로 저장되었습니다.\n경로: ${result.message}`);
+
+        // ✅ 저장 성공 후 PC에 다운로드 실행
+        const downloadUrl = `http://${window.location.hostname}:8000/api/download`;
+        window.open(downloadUrl, '_blank');
       } else {
         throw new Error(result.message);
       }
@@ -1257,3 +1258,4 @@ if (saveDataBtn) {
     }
   });
 }
+

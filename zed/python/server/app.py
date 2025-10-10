@@ -7,6 +7,7 @@ from dataclasses import asdict
 import os
 from pathlib import Path
 import sys
+import time
 import pandas as pd
 from typing import Optional, List
 
@@ -19,12 +20,18 @@ from typing import Optional, List, Dict #  [추가] Dict 임포트
 from copy import deepcopy
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from fastapi.responses import FileResponse
+
 
 
 # -----------------------------
 # Paths
 # -----------------------------
 ROOT = Path(__file__).resolve().parent
+if ROOT.name == "server":
+    LOG_BASE_DIR = (ROOT.parent.parent / "logs").resolve()
+else:
+    LOG_BASE_DIR = (ROOT / "logs").resolve()
 STATIC = ROOT / "static"
 PIPELINE_PATH = ROOT / "pipeline.py"
 COEFFS_JSON = ROOT / "coeffs.json"
@@ -92,6 +99,19 @@ def _with_legacy_keys(p: dict) -> dict:
 # -----------------------------
 # Routes
 # -----------------------------
+
+
+@app.get("/api/download")
+async def download_file():
+    latest_file = max(LOG_BASE_DIR.glob("**/*.csv"), key=lambda f: f.stat().st_mtime)
+    return FileResponse(
+        path=latest_file,
+        filename=latest_file.name,
+        media_type="text/csv"
+    )
+
+
+
 @app.get("/")
 async def index():
     return FileResponse(STATIC / "index.html")
@@ -166,9 +186,7 @@ def process_and_save_csv(all_data: AllChartData, file_path: Path, start_ts: floa
 async def save_data(data: AllChartData):
     try:
         # --- 파일 경로 설정 (기존과 동일) ---
-        log_base_dir = Path("../../logs")
-        today_str = datetime.now().strftime('%Y.%m.%d')
-        log_dir = log_base_dir / today_str
+        log_dir = LOG_BASE_DIR / datetime.now().strftime('%Y.%m.%d')
         log_dir.mkdir(parents=True, exist_ok=True)
         
         base_filename = "log_data"
@@ -189,7 +207,7 @@ async def save_data(data: AllChartData):
         #  [수정] 데이터 처리 함수 호출 시 start_timestamp 전달
         process_and_save_csv(data, file_path, start_timestamp)
         
-        return {"ok": True, "message": f"Data saved to {file_path}"}
+        return {"ok": True, "message": f"Data saved to {file_path.resolve()}"}
     except Exception as e:
         print(f"[ERROR] Failed to save data: {e}")
         return {"ok": False, "message": str(e)}
