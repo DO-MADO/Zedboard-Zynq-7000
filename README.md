@@ -94,13 +94,13 @@ http://&lt;보드_IP&gt;:8000
 <hr>
 
 <h2>📡 시스템 아키텍쳐 및 DSP 상세 파이프라인</h2>
-<pre>
+
 <img width="1920" height="1080" alt="현재구성시스템아키텍쳐" src="https://github.com/user-attachments/assets/8eada624-0c1e-468e-aaab-0015253267ae" />
   
 <img width="1013" height="1111" alt="보드DSP처리(C로직에서PYTHON)" src="https://github.com/user-attachments/assets/54c45ab9-de34-469b-a06a-26b6998fb8bf" />
 
 
-</pre>
+
 
 <hr>
 
