@@ -6,6 +6,7 @@ import importlib.util
 from dataclasses import asdict
 from pathlib import Path
 import sys
+import os
 import pandas as pd
 
 # typing은 Python 3.7에서도 사용 가능하지만 list[str] 같은 최신 문법은 X
@@ -44,6 +45,13 @@ spec.loader.exec_module(adc_pipeline)
 
 Pipeline = adc_pipeline.Pipeline
 PipelineParams = adc_pipeline.PipelineParams
+
+DEFAULT_DEVICE_URI = getattr(
+    adc_pipeline,
+    "DEFAULT_DEVICE_URI",
+    os.getenv("BOARD_IP", "ip:localhost"),
+)
+
 
 # -----------------------------
 # Pydantic 모델
@@ -309,7 +317,12 @@ if __name__ == "__main__":
     # --- 1. 명령줄 인자 파싱 ---
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["synthetic", "cproc"], default="cproc")
-    parser.add_argument("--uri", type=str, default="192.168.1.133", help="device IP")
+    parser.add_argument(
+        "--uri",
+        type=str,
+        default=DEFAULT_DEVICE_URI,
+        help="device URI (defaults to BOARD_IP env or ip:localhost)",
+    )
     parser.add_argument("--fs", type=float, default=100000, help="ADC sampling frequency (Hz)")
     parser.add_argument("--block", type=int, default=16384, help="Samples per block")
     parser.add_argument("--exe", type=str, default="iio_reader.exe", help="Path to C executable")

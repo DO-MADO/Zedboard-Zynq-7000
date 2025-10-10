@@ -14,7 +14,8 @@ import subprocess
 import threading
 import time
 import math
-from dataclasses import dataclass, field 
+import os
+from dataclasses import dataclass, field
 from typing import Callable, Optional, List, Dict, Tuple
 
 import numpy as np
@@ -192,12 +193,25 @@ class SyntheticSource(SourceBase):
 # -----------------------------
 # [4] 파라미터 데이터 클래스 (최종 버전)
 # -----------------------------
+def _default_device_uri() -> str:
+    """Return the device URI using BOARD_IP env when provided."""
+    uri = os.getenv("BOARD_IP")
+    if uri:
+        return uri.strip()
+    return "ip:localhost"
+
+DEFAULT_DEVICE_URI = _default_device_uri()
+
+
+
+
+
 @dataclass
 class PipelineParams:
     # 실행 파라미터
     mode: str = "cproc"
     exe_path: str = "iio_reader.exe"
-    ip: str = "192.168.1.133"
+    ip: str = field(default_factory=_default_device_uri)
     block_samples: int = 16384
     sampling_frequency: int = 100000
 
