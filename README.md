@@ -9,27 +9,48 @@ Zynq 기반 ZedBoard와 Python FastAPI 서버를 결합해,<br>
 <h2>🧭 주요 구성 요소</h2>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>구성 요소</th><th>파일</th><th>역할</th></tr>
-<tr><td>🧠 DSP 백엔드</td><td><code>iio_reader.c</code></td><td>ADC 수집 → 필터/계산 10단계 DSP 처리 → Frame Packer</td></tr>
-<tr><td>🐍 파이썬 서버</td><td><code>app.py</code>, <code>pipeline.py</code></td><td>Frame Parser → JSON 변환 → WebSocket 전송 및 API 제공</td></tr>
-<tr><td>🖥️ 보드 실행 버전</td><td><code>app_forBoard.py</code>, <code>pipeline_forBoard.py</code></td><td>보드 환경 최적화 (systemd + FastAPI)</td></tr>
-<tr><td>🌐 프론트엔드</td><td><code>static/index.html</code>, <code>app.js</code>, <code>style.css</code></td><td>실시간 그래프 및 파라미터 조정 UI</td></tr>
-<tr><td>🤖 배포 자동화</td><td><code>deploy.sh</code>, <code>.env</code>, <code>.env.example</code>, <code>adcserver.service</code></td><td>로컬→보드 원클릭 배포 + 부팅 시 자동 실행</td></tr>
+<tr>
+  <td>🧠 DSP 처리,연산</td>
+  <td><code>iio_reader.c</code></td>
+  <td>AD4858 ADC 신호 수집 → 필터링·계산 10단계 <br> DSP 처리 → Frame Packer 후 STDOUT/UART 출력</td>
+</tr>
+<tr>
+  <td>🐍 Python 서버</td>
+  <td><code>app.py</code>, <code>pipeline.py</code></td>
+  <td>Frame Parser → JSON 변환 → WebSocket 실시간 전송　　  + REST API 제공</td>
+</tr>
+<tr>
+  <td>🐧 보드 호환 버전</td>
+  <td><code>app_forBoard.py</code>, <code>pipeline_forBoard.py</code></td>
+  <td>보드 Python 3.7 환경에 맞춘 호환성 코드 <br>+ systemd 자동 실행 대응</td>
+</tr>
+<tr>
+  <td>🌐 프론트엔드</td>
+  <td><code>static/index.html</code>, <code>app.js</code>, <code>style.css</code></td>
+  <td>실시간 그래프 시각화 및 파라미터 조정 UI<br> (WebSocket 수신 기반)</td>
+</tr>
+<tr>
+  <td>🤖 배포 및 실행 자동화</td>
+  <td><code>deploy.sh</code>, <code>.env</code>, <code>.env.example</code>, <code>adcserver.service</code>,<code>start.sh</code></td>
+  <td>PC → 보드 원클릭 배포, 환경 변수 관리,<br> systemd 부팅 시 자동 실행</td>
+</tr>
 </table>
 
 <hr>
 
 <h2>🧰 기능 요약</h2>
 <ul>
-<li>📡 <b>ADC 신호 수집</b>: AD4858 (8채널 @ 100 kS/s)</li>
-<li>🧮 <b>DSP 파이프라인</b>: Stage3 → Stage5 → y1~y3</li>
-<li>🕸 실시간 WebSocket 전송 → Chart.js 시각화</li>
-<li>⚙️ 파라미터 실시간 조정 (LPF 컷오프, 이동평균, 계수 등)</li>
-<li>🐧 <b>보드 자동 실행</b>: systemd + start.sh</li>
-<li>🤖 <b>원클릭 배포</b>: deploy.sh로 PC → 보드 자동 배포</li>
-<li>🔐 환경 변수 관리: .env 기반 IP 및 민감 정보 분리</li>
-<li>🧼 CRLF 문제 해결: .gitattributes로 줄바꿈 통일</li>
-<li>🖼️ 정적 파일 관리: static/img Git ignore 처리</li>
+  <li>📡 <b>ADC 신호 수집</b>: AD4858 (8ch x 100 kS/s/ch) 실시간 데이터 스트리밍</li>
+  <li>🧮 <b>DSP 파이프라인</b>: Stage3 → Stage5 → y1~y3, C단에서 모든 신호 처리 후 Frame Packer 출력</li>
+  <li>🕸 <b>실시간 시각화</b>: Python FastAPI → WebSocket → Chart.js 실시간 그래프 표시 및 저장하기 기능</li>
+  <li>⚙️ <b>파라미터 실시간 제어</b>: 샘플링레이트, LPF 컷오프, 이동평균, 다항식 계수 등을 UI에서 즉시 반영</li>
+  <li>🛰 <b>UART 로그 출력</b>: <code>UART0 (COM3)</code>를 통해 터미널 에뮬레이터(PuTTY 등)에서 실시간 로그 확인 및 CSV 저장 지원</li>
+  <li>🐧 <b>보드 자동 실행</b>: systemd + <code>start.sh</code>로 부팅 시 자동 서비스 실행</li>
+  <li>🤖 <b>원클릭 배포</b>: <code>deploy.sh</code>로 PC → 보드 간 자동 파일 배포 및 서비스 반영</li>
+  <li>🔐 <b>환경 변수 관리</b>: <code>.env</code> 기반으로 IP 및 민감 정보 코드 분리</li>
+  <li>🧼 <b>CRLF 문제 해결</b>: <code>.gitattributes</code>를 통한 줄바꿈 통일</li>
 </ul>
+
 
 <hr>
 
