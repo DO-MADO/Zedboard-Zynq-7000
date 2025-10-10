@@ -166,8 +166,19 @@ zed/
 <img width="1905" height="909" alt="Save탭" src="https://github.com/user-attachments/assets/e6531251-7b3b-412d-bfb0-6efec36dfac7" />
 <img width="1677" height="857" alt="UART0로그동시확인" src="https://github.com/user-attachments/assets/77f99098-9177-46a8-990d-a83fad71a908" />
 
+<br>
+<br>
 
 
+<h2>🖼️ PC 모니터링 화면 상세 설명</h2>
+
+
+<img width="1913" height="899" alt="RawData탭_설명" src="https://github.com/user-attachments/assets/149951b9-32c8-463f-94cc-e1502c787101" />
+<img width="1907" height="887" alt="Configuration탭_설명" src="https://github.com/user-attachments/assets/83ce8cf3-f275-4004-a36f-c45a2c8df860" />
+<img width="1909" height="899" alt="4ch탭_설명" src="https://github.com/user-attachments/assets/71014b86-ff50-48f2-afae-b5092cef839f" />
+<img width="1073" height="1539" alt="4ch세부채널탭_설명" src="https://github.com/user-attachments/assets/459a6ac8-71d5-42b4-9781-2843ef062d33" />
+<img width="1881" height="883" alt="Reset탭_설명" src="https://github.com/user-attachments/assets/b50e9adf-ad3c-42b3-9978-74929c861db4" />
+<img width="1905" height="909" alt="Save탭_설명" src="https://github.com/user-attachments/assets/b55961f1-ef23-4a0c-9e59-b15199f0f6a4" />
 
 
 <h2>📜 라이선스</h2>
