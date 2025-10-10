@@ -1,430 +1,380 @@
-# ============================================================
-#  [app.py — FastAPI 서버 엔트리포인트]
-#  - AD4858/Zynq 기반 실시간 데이터 스트리밍 Web UI
-#  - pipeline.py 동적 임포트 → Pipeline 관리
-#  - index.html, test.html, /ws (WebSocket) 제공
-#  - app.state.pipeline 을 중심으로 모든 제어/전송 수행
-# ============================================================
-
-
-# ============================================================
-#  [모듈 임포트 & 경로 정의]
-# ============================================================
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import argparse
 import json
 import importlib.util
+from dataclasses import asdict 
 from pathlib import Path
+import sys
+import pandas as pd
 from typing import Optional, List
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+import uvicorn
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict #  [추가] Dict 임포트
+from copy import deepcopy
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-# 프로젝트 루트 및 주요 경로
+
+# -----------------------------
+# Paths
+# -----------------------------
 ROOT = Path(__file__).resolve().parent
-STATIC = ROOT / "static"         # 정적 파일 (index.html, style.css, app.js)
-COEFFS_JSON = ROOT / "coeffs.json"
+STATIC = ROOT / "static"
 PIPELINE_PATH = ROOT / "pipeline.py"
+COEFFS_JSON = ROOT / "coeffs.json"
 
-
-# ============================================================
-#  [Pipeline 모듈 로드 (동적 임포트)]
-#  - pipeline.py를 동적으로 import 하여 Pipeline 클래스를 사용
-# ============================================================
+# -----------------------------
+# Import pipeline.py dynamically
+# -----------------------------
 spec = importlib.util.spec_from_file_location("adc_pipeline", str(PIPELINE_PATH))
 adc_pipeline = importlib.util.module_from_spec(spec)
+sys.modules["adc_pipeline"] = adc_pipeline
 assert spec.loader is not None
 spec.loader.exec_module(adc_pipeline)
 
-# pipeline.py 내 클래스 참조
 Pipeline = adc_pipeline.Pipeline
 PipelineParams = adc_pipeline.PipelineParams
 
+# -----------------------------
+# Pydantic 모델
+# -----------------------------
 
-# ============================================================
-#  [FastAPI 앱 초기화 & StaticFiles 마운트]
-# ============================================================
-app = FastAPI(title="AD4858 Realtime Web UI (10-stage)")
+#  [추가] Chart.js의 단일 데이터셋 구조를 정확히 반영하는 모델
+class Dataset(BaseModel):
+    label: Optional[str] = None
+    data: List[float]
+
+#  [수정] ChartData 모델이 새로운 Dataset 모델을 사용하도록 변경
+class ChartData(BaseModel):
+    labels: List[float]
+    datasets: List[Dataset] # List[Dict[...]] -> List[Dataset]
+
+class AllChartData(BaseModel):
+    stage3: ChartData
+    stage5: ChartData
+    stages789: Dict[str, Dict[str, ChartData]]
+
+#  [수정] ParamsIn 모델을 아래와 같이 분리/수정
+class CoeffsUpdate(BaseModel):
+    key: str # 예: "y1_den", "y2_coeffs" 등
+    values: List[float]
+    
+    
+class ParamsIn(BaseModel):
+    sampling_frequency: Optional[float] = None
+    block_samples: Optional[int] = None
+    target_rate_hz: Optional[float] = None
+    lpf_cutoff_hz: Optional[float] = None
+    movavg_ch_sec: Optional[float] = None
+    movavg_r_sec: Optional[float] = None
+
+# -----------------------------
+# FastAPI app & Helpers
+# -----------------------------
+app = FastAPI(title="AD4858 Realtime Web UI")
 if STATIC.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
+def _with_legacy_keys(p: dict) -> dict:
+    if "y1_den" in p: p["coeffs_y1"] = p["y1_den"]
+    if "y2_coeffs" in p: p["coeffs_y2"] = p["y2_coeffs"]
+    if "y3_coeffs" in p: p["coeffs_y3"] = p["y3_coeffs"]
+    if "E" in p and "F" in p: p["coeffs_yt"] = [p["E"], p["F"]]
+    return p
 
-# ============================================================
-#  [Pydantic 모델: 파라미터 입력 정의]
-#  - 클라이언트(UI)에서 POST /api/params 로 전달하는 값 정의
-#  - Optional 처리 → 변경된 값만 전달 가능
-# ============================================================
-class ParamsIn(BaseModel):
-    # 필터/평균/타겟레이트
-    lpf_cutoff_hz: Optional[float] = None
-    lpf_order: Optional[int] = None
-    movavg_ch: Optional[int] = None
-    movavg_r: Optional[int] = None
-    target_rate_hz: Optional[float] = None
-
-    # (단일/멀티 출력 — 실제 운영에서는 무시하지만 받기만 함)
-    derived: Optional[str] = None
-    derived_multi: Optional[str] = None
-    out_ch: Optional[int] = None
-
-    # 구 UI에서 쓰던 계수 (레거시 지원)
-    coeffs_y1: Optional[List[float]] = None
-    coeffs_y2: Optional[List[float]] = None
-    coeffs_y3: Optional[List[float]] = None
-    coeffs_yt: Optional[List[float]] = None
-
-    # 파이프라인 내부에서 쓰는 네이티브 파라미터
-    alpha: Optional[float] = None
-    beta: Optional[float] = None
-    gamma: Optional[float] = None
-    k: Optional[float] = None
-    b: Optional[float] = None
-
-    y1_num: Optional[List[float]] = None
-    y1_den: Optional[List[float]] = None
-    y2_coeffs: Optional[List[float]] = None
-    E: Optional[float] = None
-    F: Optional[float] = None
-    y3_coeffs: Optional[List[float]] = None
-
-    r_abs: Optional[bool] = None
-    
-    sampling_frequency: Optional[float] = None
-    block_samples: Optional[int] = None
-    
-
-
-# ============================================================
-#  [헬퍼 함수: 레거시 키 변환]
-#  - UI 호환성을 위해 coeffs_y1, coeffs_y2 같은 옛 키도 반환
-# ============================================================
-def _with_legacy_keys(data: dict) -> dict:
-    """응답에 구 UI 키도 함께 포함시켜 UI 호환성을 유지"""
-    out = dict(data)
-    out["coeffs_y1"] = out.get("y1_num", [])
-    out["coeffs_y2"] = out.get("y2_coeffs", [])
-    out["coeffs_y3"] = out.get("y3_coeffs", [])
-    out["coeffs_yt"] = [out.get("E", 1.0), out.get("F", 0.0)]
-    return out
-
-
-# ============================================================
-#  [라우트: 기본 페이지 / API 엔드포인트]
-# ============================================================
-
+# -----------------------------
+# Routes
+# -----------------------------
 @app.get("/")
 async def index():
-    """index.html 반환 (없으면 상태 메시지)"""
-    fallback = STATIC / "index.html"
-    if fallback.exists():
-        return FileResponse(fallback)
-    return {"ok": True, "message": "AD4858 Web UI running (10-stage). Connect to /ws for frames."}
+    return FileResponse(STATIC / "index.html")
 
 
-@app.get("/test")
-async def test_page():
-    """누적 차트 페이지(test.html) 반환"""
-    test_html_path = STATIC / "testPage" / "test.html"
-    if test_html_path.exists():
-        return FileResponse(test_html_path)
-    return {"ok": False, "message": "test.html not found."}
+#  [추가] 데이터 처리 및 CSV 저장을 위한 헬퍼 함수
+def process_and_save_csv(all_data: AllChartData, file_path: Path, start_ts: float):
+    """
+    모든 차트 데이터를 병합하여 단일 CSV 파일로 저장합니다. (리샘플링 없음)
+    """
+    all_series = []
+    
+    #  [수정] start_ts 인자를 받도록 시그니처 변경
+    def create_series_from_chart_data(chart_data: ChartData, base_name: str, start_ts: float) -> list:
+        series_list = []
+        if not chart_data.labels or not chart_data.datasets:
+            return []
+            
+        #  [1. 시간대 설정] 한국 시간(KST, UTC+9)을 정의합니다.
+        kst = ZoneInfo("Asia/Seoul")
+        
+        num_datasets = len(chart_data.datasets)
+
+        for i, ds in enumerate(chart_data.datasets):
+            if not ds.data: continue
+            
+            # 상대 시간(label)을 절대 시간(Unix timestamp)으로 변환
+            absolute_timestamps = [start_ts + label for label in chart_data.labels]
+            #  [1. 시간대 설정] Unix timestamp를 KST 기준 datetime 객체로 변환
+            datetime_index = [datetime.fromtimestamp(ts, tz=kst) for ts in absolute_timestamps]
+            
+            df = pd.DataFrame(index=datetime_index, data={'value': ds.data})
+            
+            #  [2. 1초 단위 로그 수집] 데이터를 1초 간격으로 리샘플링하고 평균값을 사용
+            df = df.resample('1S').mean()
+            
+            if num_datasets > 1:
+                col_name = f"{base_name}_{ds.label or i}"
+            else:
+                col_name = base_name
+
+            df.rename(columns={'value': col_name}, inplace=True)
+            series_list.append(df)
+        return series_list
+
+    #  [수정] create_series_from_chart_data 호출 시 start_ts 전달
+    all_series.extend(create_series_from_chart_data(all_data.stage3, 'S3', start_ts))
+    all_series.extend(create_series_from_chart_data(all_data.stage5, 'S5', start_ts))
+    for ch, stages in all_data.stages789.items():
+        for stage, data in stages.items():
+            prefix = f"{ch}_{stage}"
+            all_series.extend(create_series_from_chart_data(data, prefix, start_ts))
+            
+    if not all_series:
+        return
+
+    final_df = pd.concat(all_series, axis=1)
+    final_df.sort_index(inplace=True)
+    
+    #  [추가] CSV로 저장하기 전, 인덱스(시간)의 형식을 원하는 문자열로 변경합니다.
+    # '%Y-%m-%d %H:%M:%S.%f'는 마이크로초(6자리)까지 표시, .str[:-3]으로 밀리초(3자리)에서 자름
+    final_df.index = final_df.index.strftime('%Y-%m-%d %H:%M:%S.%f').str[:-3]
+    
+    #  [수정] CSV 저장 시 인덱스 컬럼명을 'Timestamp'로 변경
+    final_df.to_csv(file_path, float_format='%.6f', index_label='Timestamp')
+
+
+
+
+#  [추가] 데이터 저장을 위한 새로운 API 엔드포인트
+@app.post("/api/save_data")
+async def save_data(data: AllChartData):
+    try:
+        # --- 파일 경로 설정 (기존과 동일) ---
+        log_base_dir = Path("../../logs")
+        today_str = datetime.now().strftime('%Y.%m.%d')
+        log_dir = log_base_dir / today_str
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        base_filename = "log_data"
+        counter = 0
+        while True:
+            suffix = "" if counter == 0 else str(counter)
+            file_path = log_dir / f"{base_filename}{suffix}.csv"
+            if not file_path.exists():
+                break
+            counter += 1
+            
+        #  [추가] pipeline에서 데이터 시작 시간(Unix timestamp)을 가져옵니다.
+        start_timestamp = app.state.pipeline.start_time
+        if start_timestamp is None:
+            # 데이터가 아직 수신되지 않은 경우, 현재 시간을 기준으로 합니다.
+            start_timestamp = time.time()
+            
+        #  [수정] 데이터 처리 함수 호출 시 start_timestamp 전달
+        process_and_save_csv(data, file_path, start_timestamp)
+        
+        return {"ok": True, "message": f"Data saved to {file_path}"}
+    except Exception as e:
+        print(f"[ERROR] Failed to save data: {e}")
+        return {"ok": False, "message": str(e)}
+
+
+
+
+#  [신규 추가] 계수 업데이트를 위한 API 엔드포인트
+@app.post("/api/coeffs")
+async def set_coeffs(p: CoeffsUpdate):
+    """실행 중인 C 프로세스에 계수만 실시간으로 업데이트합니다."""
+    app.state.pipeline.update_coeffs(p.key, p.values)
+
+    # UI의 'Configuration' 탭 정보도 동기화
+    updated_params = _with_legacy_keys(asdict(app.state.pipeline.params))
+    return {
+        "ok": True,
+        "message": f"Coefficients for '{p.key}' updated.",
+        "params": updated_params
+    }
+
 
 
 @app.get("/api/params")
 async def get_params():
-    """현재 파라미터 조회"""
-    data = app.state.pipeline.params.model_dump()
-    return _with_legacy_keys(data)
+    #  .model_dump() -> asdict() 수정 (1/4)
+    return _with_legacy_keys(asdict(app.state.pipeline.params))
 
 
 @app.post("/api/params")
 async def set_params(p: ParamsIn):
     """
-    파라미터 업데이트 엔드포인트
-
-    동작:
-    - 레거시 키 매핑 지원 (coeffs_y1 → y1_num 등)
-    - 변경된 항목만 pipeline.update_params()에 반영
-    - 샘플링 속도/블록 크기 변경 시 pipeline 재시작
-    - 계수/모드 변경 시 coeffs.json에 저장
-
-    입력:
-    - ParamsIn (UI → FastAPI)
-
-    반환:
-    - dict {"ok": bool, "changed": 변경된 키 목록, "params": 최신 파라미터(레거시 키 포함)}
+    파라미터 업데이트 엔드포인트 (최종 버전)
+    - UI의 모든 파라미터를 처리하고 단위를 변환합니다.
+    - C 코드에 영향을 주는 파라미터 변경 시 파이프라인을 재시작하고
+      'restarted' 신호를 보내 페이지 새로고침을 유도합니다.
     """
+    # 1. UI로부터 받은 데이터 중 실제 값이 있는 것만 사전 형태로 추출
+    body = p.model_dump(exclude_unset=True)
     
-    # 1) 들어온 값 중 None이 아닌 것만 취함 (변경된 것만 반영)
-    body = {k: v for k, v in p.model_dump().items() if v is not None}
+    # 2. 현재 파이프라인의 파라미터를 사전 형태로 복사
+    current_params = app.state.pipeline.params
+    new_params_dict = asdict(current_params)
+    
+    # 3. '초(sec)' 단위를 C가 사용할 '샘플 수'로 변환
+    #    - 변환에 필요한 최신 주파수 값을 사용 (body에 있으면 body 값, 없으면 현재 값)
+    fs = body.get("sampling_frequency", current_params.sampling_frequency)
+    tr = body.get("target_rate_hz", current_params.target_rate_hz)
 
+    if "movavg_ch_sec" in body:
+        sec = body["movavg_ch_sec"]
+        # CH MA는 원본 신호에 적용되므로 'sampling_frequency'(fs)로 계산
+        body["movavg_ch"] = max(1, round(sec * fs))
 
-    # 2) 운영 정책: 항상 yt_4 모드로 고정
-    #    (derived/out_ch는 무시, derived_multi만 강제 "yt_4")
-    body.pop("derived", None)
-    body.pop("out_ch", None)
-    body["derived_multi"] = "yt_4"
+    if "movavg_r_sec" in body:
+        sec = body["movavg_r_sec"]
+        # R MA는 시간 평균 후 신호에 적용되므로 'target_rate_hz'(tr)로 계산
+        body["movavg_r"] = max(1, round(sec * tr))
 
-
-    # 3) 레거시 키 -> 네이티브 키 매핑 (UI 호환성 보존)
-    if "coeffs_y1" in body:
-        body["y1_num"] = body.pop("coeffs_y1")
-    if "coeffs_y2" in body:
-        body["y2_coeffs"] = body.pop("coeffs_y2")
-    if "coeffs_y3" in body:
-        body["y3_coeffs"] = body.pop("coeffs_y3")
-    if "coeffs_yt" in body:
-        coeffs = body.pop("coeffs_yt")
-        if isinstance(coeffs, (list, tuple)) and len(coeffs) >= 2:
-            body["E"], body["F"] = float(coeffs[0]), float(coeffs[1])
-
-
-    # 4) pipeline.update_params 호출 → "변경된 키 목록" 반환
-    changed = app.state.pipeline.update_params(**body)
-
-
-    # 5) 샘플링 속도나 블록 크기 변경 → pipeline 재시작 필요
-    #    (데이터 스트림 타이밍이 바뀌므로 stop/start)
-    def _changed_has(key, changed):
-        if isinstance(changed, (list, tuple, set)):
-            return key in changed
-        elif isinstance(changed, dict):
-            return key in changed.keys()
-        return False
-
-    try:
-        critical_changed = (
-            "sampling_frequency" in changed or
-            "block_samples" in changed
-        )
-    except Exception:
-        critical_changed = (
-            _changed_has("sampling_frequency", changed) or
-            _changed_has("block_samples", changed)
-        )
-
-    if critical_changed:
-        new_fs = getattr(app.state.pipeline.params, "sampling_frequency", "unknown")
-        new_block = getattr(app.state.pipeline.params, "block_samples", "unknown")
-
-         # 안전 로그: 변경된 주요 파라미터를 기록
-         # (샘플링 속도 fs, 블록 크기 block → 데이터 스트림 타이밍에 영향)
-        print(f"[INFO] Critical param changed -> restarting pipeline (fs={new_fs}, block={new_block})")
-
-
-        # 시도 1) pipeline 객체가 restart() 메서드를 지원하는 경우
-    #         (가장 안전하고 빠른 방법: 내부 상태만 초기화)
-        if hasattr(app.state.pipeline, "restart") and callable(app.state.pipeline.restart):
-            try:
-                app.state.pipeline.restart(app.state.pipeline.params)
-            except Exception as e:
-                # 실패 시 fallback → stop() 후 객체 재생성/재시작
-                print("[WARN] pipeline.restart() failed, falling back to stop/start:", e)
-                try:
-                    app.state.pipeline.stop()
-                except Exception:
-                    pass
-                from pipeline import Pipeline
-                app.state.pipeline = Pipeline(app.state.pipeline.params)
-                app.state.pipeline.start()
-        else:
-             # 시도 2) restart() 미지원 → stop() → 객체 재생성 → start()
-        #         (기존 파이프라인 완전히 종료 후 새로 시작)
-            try:
-                app.state.pipeline.stop()
-            except Exception:
-                pass
-            from pipeline import Pipeline
-            app.state.pipeline = Pipeline(app.state.pipeline.params)
-            app.state.pipeline.start()
-
-    else:
-        # 샘플링 속도 / 블록 크기 변경이 없는 경우:
-        # pipeline은 유지 → 변경된 파라미터만 실시간 반영
-        pass
-
-
-    # 6) 계수/모드 관련 파라미터 변경 시 coeffs.json 저장
-    #    (서버 재시작 후에도 설정 유지 가능)
-    if any(k in changed for k in (
-        "alpha","beta","gamma","k","b",
-        "y1_num","y1_den","y2_coeffs",
-        "E","F","y3_coeffs","r_abs","derived_multi"
-    )):
-        try:
-            app.state.pipeline.save_coeffs(COEFFS_JSON)
-        except Exception as e:
-            print("[ERROR] Failed to save coeffs to JSON:", e)
-
-
-    # 7) 응답: 변경된 항목 + 최신 파라미터 (레거시 키 포함)
-    return {"ok": True, "changed": changed,
-            "params": _with_legacy_keys(app.state.pipeline.params.model_dump())}
+    # 4. 변경된 값이 있는지 확인하고, 있다면 새로운 파라미터 사전에 업데이트
+    changed = {}
+    for key, value in body.items():
+        if hasattr(current_params, key) and value != getattr(current_params, key):
+            new_params_dict[key] = value
+            changed[key] = value
+    
+    # 5. C 코드에 영향을 주는 파라미터 중 하나라도 바뀌면 재시작
+    restarted = False
+    critical_keys = ["sampling_frequency", "block_samples", "target_rate_hz", "lpf_cutoff_hz", "movavg_r", "movavg_ch"]
+    if any(k in changed for k in critical_keys):
+        p_current = app.state.pipeline
+        p_current.stop()
+        
+        # 업데이트된 파라미터 사전으로 새 PipelineParams 객체 생성
+        new_params_obj = PipelineParams(**new_params_dict)
+        
+        # 새 파이프라인 생성 및 시작
+        new_pipeline = Pipeline(params=new_params_obj, broadcast_fn=p_current.broadcast_fn)
+        new_pipeline.start()
+        app.state.pipeline = new_pipeline # 앱의 상태를 새 파이프라인으로 교체
+        restarted = True
+        print("[INFO] Pipeline has been restarted due to critical parameter change.")
+    
+    # 6. 최종 결과 반환
+    return {
+        "ok": True, 
+        "changed": changed, 
+        "restarted": restarted,
+        "params": _with_legacy_keys(asdict(app.state.pipeline.params))
+    }
 
 
 
 
 @app.post("/api/params/reset")
 async def reset_params():
-    """
-    파라미터 초기화 API
-    - PipelineParams() 기본값으로 전체 파라미터 리셋
-    - pipeline.restart() 호출 → 기존 파이프라인 재구동
-    - 기본 stats 정보 생성 후 즉시 브로드캐스트 (웹 클라이언트 동기화)
-    - 반환: 초기화된 파라미터(JSON)
-    """
-    # 1) PipelineParams() 기본값으로 초기화
-    default_params = PipelineParams()
-    app.state.pipeline.restart(default_params)
-    
-    # 2) 초기 상태 정보(stats) 구성
-    stats = {
-        "sampling_frequency": float(default_params.sampling_frequency),    # 기본 샘플링 속도 (Hz)
-        "block_samples": int(default_params.block_samples),                # 블록 크기 (샘플 수)
-        "block_time_ms": (default_params.block_samples / default_params.sampling_frequency * 1000),  # 블록 처리 시간 (ms)
-        "blocks_per_sec": (default_params.sampling_frequency / default_params.block_samples),        # 초당 처리 블록 수
-    }
+    p_current = app.state.pipeline
+    p_current.stop()
 
-    # 3) 브로드캐스트 페이로드 구성
-    payload = {
-        "type": "stats",                             # 메시지 타입: stats 업데이트
-        "stats": stats,                              # 계산된 stats
-        "params": default_params.model_dump(),       # 기본 파라미터 전체
-    }
+    # 기본 파라미터 불러오기
+    base = deepcopy(app.state.default_params)
+    # 실행 관련 값은 현재 pipeline 것 유지
+    base.mode = p_current.params.mode
+    base.exe_path = p_current.params.exe_path
+    base.ip = p_current.params.ip
+    # base.block_samples = p_current.params.block_samples
+    # base.sampling_frequency = p_current.params.sampling_frequency
 
-    # 4) 웹소켓 연결된 클라이언트에 즉시 전송
-    app.state.pipeline._broadcast(payload)
+    new_pipeline = Pipeline(params=base, broadcast_fn=p_current.broadcast_fn)
+    new_pipeline.start()
+    app.state.pipeline = new_pipeline
 
-    # 5) 응답 반환 (초기화된 파라미터 JSON)
-    return {"ok": True, "params": default_params.model_dump()}
+    payload = {"type": "params", "data": _with_legacy_keys(asdict(new_pipeline.params))}
+    app.state.pipeline._broadcast(payload)  # 초기화된 값 즉시 push
+
+    return {"ok": True, "restarted": True, "params": _with_legacy_keys(asdict(new_pipeline.params))}
 
 
 
-# ============================================================
-#  [웹소켓 엔드포인트: 실시간 프레임 전송]
-# ------------------------------------------------------------
-# - 클라이언트(브라우저 등)와 WebSocket 연결을 수립
-# - pipeline.register_consumer()로 큐(consumer) 등록
-# - 연결 직후 현재 파라미터를 JSON으로 전송 (동기화 목적)
-# - 이후 while 루프에서 실시간 처리된 프레임을 지속 전송
-# - 클라이언트 연결 해제(WebSocketDisconnect) 시 안전 종료
-# ============================================================
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
 
+
+# -----------------------------
+# WebSocket
+# -----------------------------
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
-    await ws.accept()  # 1) 연결 수락
-    q = app.state.pipeline.register_consumer()  # 2) 소비자 큐 등록
-    
+    await ws.accept()
+    q = app.state.pipeline.register_consumer()
+    await ws.send_json({"type": "params", "data": _with_legacy_keys(asdict(app.state.pipeline.params))})
     try:
-        # 3) 초기 파라미터를 클라이언트에 전송 (동기화)
-        await ws.send_json({
-            "type": "params",
-            "data": _with_legacy_keys(app.state.pipeline.params.model_dump())
-        })
-
-        # 4) 무한 루프: 파이프라인에서 큐로 들어온 메시지를 실시간 전송
         while True:
-            msg = await q.get()       # pipeline에서 전달된 메시지 수신
-            await ws.send_text(msg)   # 클라이언트로 전송 (JSON 문자열)
-
+            msg = await q.get()
+            await ws.send_text(msg)
     except WebSocketDisconnect:
-        # 5) 정상적인 연결 해제 시 (브라우저 닫기 등) 무시
+        pass
+    finally:
         pass
 
-    except Exception:
-        # 6) 예기치 못한 오류 발생 시 소켓 닫기 시도
-        try:
-            await ws.close()
-        except Exception:
-            pass
-
-
-
-# ============================================================
-#  [엔트리포인트: CLI 옵션 → 파이프라인 시작 → 서버 실행]
-# ------------------------------------------------------------
-# - python app.py [옵션] 으로 실행 시 진입점
-# - argparse를 통해 모드/URI/fs/block 등 런타임 설정 가능
-# - coeffs.json을 로드하여 보정계수 초기화
-# - PipelineParams → Pipeline 생성 및 실행
-# - FastAPI(Uvicorn) 서버 시작
-# ------------------------------------------------------------
-# ※ 주의:
-#   - 지금은 main.py 대신 app.py가 웹 연동 메인 엔트리로 사용됨
-#   - Pipeline과 WebSocket을 함께 관리 → 실시간 대시보드 제공
-# ============================================================
-
+# -----------------------------
+# Entrypoint (최종 수정 버전)
+# -----------------------------
 if __name__ == "__main__":
-    import uvicorn
-
-    # --- CLI 인자 정의 ---
+    # --- 1. 명령줄 인자 파싱 ---
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["synthetic", "iio", "cproc"], default="synthetic",
-                        help="데이터 소스 모드 (synthetic/iio/cproc)")
-    parser.add_argument("--uri", type=str, default="ip:192.168.1.133",
-                        help="IIO URI (iio/pylibiio) 또는 cproc 모드에서 장치 IP")
-    parser.add_argument("--fs", type=float, default=1_000_000,
-                        help="ADC 하드웨어 샘플링 속도 (Hz)")
-    parser.add_argument("--block", type=int, default=16384,
-                        help="블록당 샘플 수 (C reader와 연계)")
-    parser.add_argument("--exe", type=str, default="iio_reader",
-                        help="cproc 모드에서 실행할 C 리더 실행파일 경로")
-    parser.add_argument("--host", type=str, default="127.0.0.1",
-                        help="FastAPI 서버 바인딩 호스트")
-    parser.add_argument("--port", type=int, default=8000,
-                        help="FastAPI 서버 포트")
+    parser.add_argument("--mode", choices=["synthetic", "cproc"], default="cproc")
+    parser.add_argument("--uri", type=str, default="192.168.1.133", help="device IP")
+    parser.add_argument("--fs", type=float, default=100000, help="ADC sampling frequency (Hz)")
+    parser.add_argument("--block", type=int, default=16384, help="Samples per block")
+    parser.add_argument("--exe", type=str, default="iio_reader.exe", help="Path to C executable")
+    parser.add_argument("--host", type=str, default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    # --- coeffs.json 로드 ---
-    coeffs = {}
-    if COEFFS_JSON.exists():
-        try:
-            coeffs = json.loads(COEFFS_JSON.read_text(encoding="utf-8"))
-        except Exception:
-            coeffs = {}
-
-    # --- PipelineParams 초기화 ---
-    params = PipelineParams(
-        sampling_frequency=args.fs,
-        lpf_cutoff_hz=2_500,
-        lpf_order=4,
-        movavg_ch=8,
-        movavg_r=4,
-        target_rate_hz=10.0,
-        block_samples=16384,
-        derived="yt",   # 사용 안 함 (항상 yt로 고정)
-        out_ch=0,
-        derived_multi=coeffs.get("derived_multi", "yt_4"),
-
-        # JSON에서 불러오거나 기본값 사용
-        alpha=coeffs.get("alpha", 1.0),
-        beta=coeffs.get("beta", 1.0),
-        gamma=coeffs.get("gamma", 1.0),
-        k=coeffs.get("k", 10.0),
-        b=coeffs.get("b", 0.0),
-        y1_num=coeffs.get("y1_num", [1.0, 0.0]),   # y = x
-        y1_den=coeffs.get("y1_den", [0.0, 0.0, 0.0, 0.0, 0.0, 1.0]),  # y = 1
-        y2_coeffs=coeffs.get("y2_coeffs", [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]),  # y = x
-        E=coeffs.get("E", 1.0),
-        F=coeffs.get("F", 0.0),
-        y3_coeffs=coeffs.get("y3_coeffs", [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]),  # y = x
-        r_abs=coeffs.get("r_abs", True),
-    )
-
-    # --- Pipeline 실행 ---
-    pipeline = Pipeline(
+    # --- 2. 서버 시작 시의 기본 파라미터 생성 ---
+    # 이 객체는 '초기화' 버튼의 기준값이 됨
+    startup_params = PipelineParams(
+        # 명령줄 인자로 받은 실행 파라미터
         mode=args.mode,
-        uri=args.uri,
-        block_samples=args.block,
         exe_path=args.exe,
-        params=params,
+        ip=args.uri,
+        block_samples=args.block,
+        sampling_frequency=args.fs,
+        
+        # DSP 관련 기본값은 dataclass 정의를 따름
+        # 이 값들이 UI의 초기 슬라이더 위치를 결정
+        target_rate_hz=10.0,
+        lpf_cutoff_hz=2500.0,
+        movavg_r=5,
+        label_names=["yt0", "yt1", "yt2", "yt3"],
+        # 나머지 계수들은 PipelineParams에 정의된 기본값을 사용
     )
+
+    # --- 3. 파이프라인 생성 및 시작 ---
+    #  [수정] pipeline에 startup_params의 '복사본'을 전달하여
+    # default_params가 오염되지 않도록 합니다.
+    pipeline = Pipeline(params=deepcopy(startup_params), broadcast_fn=lambda payload: None)
     pipeline.start()
+
+    # --- 4. FastAPI 앱 상태(app.state)에 객체 저장 ---
+    # '초기화' 버튼이 참조할 수 있도록 원본/기본 파라미터를 저장
+    app.state.default_params = startup_params
+    # 현재 실행 중인 파이프라인 저장
     app.state.pipeline = pipeline
 
-    print(f"[INFO] Loaded pipeline module: {adc_pipeline.__file__}")
-    print(f"[INFO] PipelineParams fields: {list(params.model_dump().keys())}")
-
-    # --- FastAPI(Uvicorn) 서버 실행 ---
+    # --- 5. 서버 실행 ---
+    print(f"[INFO] pipeline loaded with params: {_with_legacy_keys(asdict(pipeline.params))}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

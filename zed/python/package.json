@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "asyncio": "^0.0.2",
+    "json": "^11.0.0",
+    "struct": "^0.0.12",
+    "subprocess": "^0.3.0",
+    "threading": "^0.0.2"
+  }
+}
