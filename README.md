@@ -1,26 +1,174 @@
-# 📌 Multi-channel ADC Streaming Demo (AD4858/Zynq-7000)
+<h1>🚀 Real-Time DSP Signal Processing System (ZedBoard + FastAPI)</h1>
 
-<br>
+Zynq 기반 ZedBoard와 Python FastAPI 서버를 결합해,<br>
+📡 <b>실시간 신호처리 파이프라인(DSP)</b> <b> → </b> 💻 <b>웹 UI 시각화</b>로 이어지는<br>
+온프레미스 실시간 데이터 처리 시스템입니다.
+
+<hr>
+
+<h2>🧭 주요 구성 요소</h2>
+<table border="1" cellpadding="6" cellspacing="0">
+<tr><th>구성 요소</th><th>파일</th><th>역할</th></tr>
+<tr>
+  <td>🧠 DSP 처리,연산</td>
+  <td><code>iio_reader.c</code></td>
+  <td>AD4858 ADC 신호 수집 → 필터링·계산 10단계 <br> DSP 처리 → Frame Packer 후 STDOUT/UART 출력</td>
+</tr>
+<tr>
+  <td>🐍 Python 서버</td>
+  <td><code>app.py</code>, <code>pipeline.py</code></td>
+  <td>Frame Parser → JSON 변환 → WebSocket 실시간 전송　　  + REST API 제공</td>
+</tr>
+<tr>
+  <td>🐧 보드 호환 버전</td>
+  <td><code>app_forBoard.py</code>, <code>pipeline_forBoard.py</code></td>
+  <td>보드 Python 3.7 환경에 맞춘 호환성 코드 <br>+ systemd 자동 실행 대응</td>
+</tr>
+<tr>
+  <td>🌐 프론트엔드</td>
+  <td><code>static/index.html</code>, <code>app.js</code>, <code>style.css</code></td>
+  <td>실시간 그래프 시각화 및 파라미터 조정 UI<br> (WebSocket 수신 기반)</td>
+</tr>
+<tr>
+  <td>🤖 배포 및 실행 자동화</td>
+  <td><code>deploy.sh</code>, <code>.env</code>, <code>.env.example</code>, <code>adcserver.service</code>,<code>start.sh</code></td>
+  <td>PC → 보드 원클릭 배포, 환경 변수 관리,<br> systemd 부팅 시 자동 실행</td>
+</tr>
+</table>
+
+<hr>
+
+<h2>🧰 기능 요약</h2>
+<ul>
+  <li>📡 <b>ADC 신호 수집</b>: AD4858 (8ch x 100 kS/s/ch) 실시간 데이터 스트리밍</li>
+  <li>🧮 <b>DSP 파이프라인</b>: Stage3 → Stage5 → y1~y3, C단에서 모든 신호 처리 후 Frame Packer 출력</li>
+  <li>🕸 <b>실시간 시각화</b>: Python FastAPI → WebSocket → Chart.js 실시간 그래프 표시 및 저장하기 기능</li>
+  <li>⚙️ <b>파라미터 실시간 제어</b>: 샘플링레이트, LPF 컷오프, 이동평균, 다항식 계수 등을 UI에서 즉시 반영</li>
+  <li>🛰 <b>UART 로그 출력</b>: <code>UART0 (COM3)</code>를 통해 터미널 에뮬레이터(PuTTY 등)에서 실시간 로그 확인 및 CSV 저장 지원</li>
+  <li>🐧 <b>보드 자동 실행</b>: systemd + <code>start.sh</code>로 부팅 시 자동 서비스 실행</li>
+  <li>🤖 <b>원클릭 배포</b>: <code>deploy.sh</code>로 PC → 보드 간 자동 파일 배포 및 서비스 반영</li>
+  <li>🔐 <b>환경 변수 관리</b>: <code>.env</code> 기반으로 IP 및 민감 정보 코드 분리</li>
+  <li>🧼 <b>CRLF 문제 해결</b>: <code>.gitattributes</code>를 통한 줄바꿈 통일</li>
+</ul>
+
+
+<hr>
+
+<h2>🧭 환경 변수 예시 (.env.example)</h2>
+
+<pre>
+  
+# 📡 대상 보드 IP 또는 호스트 (libiio 형식)
+BOARD_IP=ip:YOUR_IP
+
+# 👤 SSH 접속 사용자
+BOARD_USER=root
+
+# 📂 배포 파일 경로
+BOARD_DIR=/root
+
+# 🛜 systemd 서비스명
+SERVICE_NAME=adcserver.service
+  
+</pre>
+
+<hr>
+
+<h2>⚡ 배포 및 실행</h2>
+
+<pre>
+  
+# 1️⃣ 배포 (PC → 보드)
+./deploy.sh
+
+  
+# 2️⃣ 보드에서 서비스 상태 확인
+systemctl status adcserver.service
+
+  
+# 3️⃣ 브라우저 접속
+http://&lt;보드_IP&gt;:8000
+  
+</pre>
+
+<hr>
+
+<h2>📡 시스템 아키텍쳐 및 DSP 상세 파이프라인</h2>
+<pre>
+<img width="1920" height="1080" alt="현재구성시스템아키텍쳐" src="https://github.com/user-attachments/assets/8eada624-0c1e-468e-aaab-0015253267ae" />
+  
+<img width="1013" height="1111" alt="보드DSP처리(C로직에서PYTHON)" src="https://github.com/user-attachments/assets/54c45ab9-de34-469b-a06a-26b6998fb8bf" />
+
+
+</pre>
+
+<hr>
+
+<h2>📁 디렉토리 구조 (PC)</h2>
+<pre>
+zed/
+ ├─ c/                        ← 🧠 C DSP 코드
+ │   ├─ iio_reader.c          # AD4858 ADC + DSP 파이프라인 (10단계)
+ │   ├─ main.c
+ │   ├─ libiio/ (optional)
+ │   └─ CMakeLists.txt
+ │
+ ├─ python/                   ← 🐍 Python 서버/프론트엔드
+ │   └─ server/
+ │       ├─ app.py
+ │       ├─ app_forBoard.py   # 보드 Python 버전 호환성 대응
+ │       ├─ pipeline.py
+ │       ├─ pipeline_forBoard.py # 보드 Python 버전 호환성 대응
+ │       └─ static/
+ │           ├─ index.html
+ │           ├─ app.js
+ │           └─ style.css
+ │
+ ├─ service/                  ← 🤖 서비스 실행/관리 스크립트
+ │   ├─ adcserver.service     # systemd 서비스 유닛
+ │   └─ start.sh              # FastAPI + iio_reader 자동 기동 스크립트
+ │
+ ├─ logs/                     ← 📝 로그 (웹용 : SAVE 버튼 누를시, 서버ON ~ SAVE 시점까지 / 웹화면 모든 그래프 값)
+ │   ├─ 2025.09.30/
+ │   └─ 2025.10.02/
+ │
+ ├─ .env                      # 실제 환경 변수
+ ├─ .env.example              # 환경 변수 샘플
+ ├─ .gitattributes            # EOL 통일
+ ├─ .gitignore
+ ├─ deploy.sh                 # PC→보드 자동 배포 스크립트
+ └─ README.md
+</pre>
+
+<h2>📁 디렉토리 구조 (ZedBoard)</h2>
+<pre>
+/root/
+ ├─ app_forBoard.py              # 🐍 보드 전용 FastAPI 서버 (보드 Python 버전 호환성 대응)
+ ├─ pipeline_forBoard.py         # 🧮 파이프라인 로직 (보드 환경 최적화)
+ ├─ iio_reader                   # 🧠 C DSP 실행 바이너리 (AD4858 신호 처리)
+ ├─ start.sh                     # 🚀 보드 기동 시 FastAPI + DSP 자동 실행 스크립트
+ ├─ adcserver.service            # 🐧 systemd 서비스 유닛 파일 (부팅 시 자동 실행)
+ ├─ static/                      # 🌐 웹 프론트엔드 (UI)
+ │   ├─ index.html               # 메인 웹 UI
+ │   ├─ app.js                   # WebSocket + 실시간 그래프 로직
+ │   └─ style.css                # UI 스타일시트
+ └─ logs/                        # 📝 실시간 로그 저장 폴더 (시간 누적 저장 최종 4ch yt 값만)
+</pre>
+
+<hr>
+
+<h2>🖼️ 이미지 자료</h2>
+<img width="1913" height="899" alt="RawData탭" src="https://github.com/user-attachments/assets/1c6501e9-1c36-41a3-a6fa-0b5bc4b91bec" />
+<img width="1907" height="887" alt="Configuration탭" src="https://github.com/user-attachments/assets/304ecaa8-193a-4ff8-b379-672a798e90e0" />
+<img width="1909" height="899" alt="4ch탭" src="https://github.com/user-attachments/assets/de8bce6a-1a82-4464-a09e-94224362dc63" />
+<img width="1073" height="1539" alt="4ch세부채널탭" src="https://github.com/user-attachments/assets/de50e702-9ffd-4883-96d8-fe41e3c60a23" />
+<img width="1881" height="883" alt="Reset탭" src="https://github.com/user-attachments/assets/cb95ff0b-ed50-4c24-952e-9fd986ac9b4b" />
+<img width="1905" height="909" alt="Save탭" src="https://github.com/user-attachments/assets/e6531251-7b3b-412d-bfb0-6efec36dfac7" />
 
 
 
-<h1>⚠️V2 작업중</h1>
-
-- C 기반 리팩토링 <br>
-- 독립형 임베디드 장치 
 
 
-<br>
-
-## 💾 시각 데이터
-<img width="1052" height="1928" alt="다크화면" src="https://github.com/user-attachments/assets/9ebfc6c9-eb8c-4965-be02-14aab1ae4dc4" />
-<img width="1895" height="907" alt="화이트화면" src="https://github.com/user-attachments/assets/4c39b00a-c21a-4552-9da2-c8e2985cbc7d" />
-<img width="1907" height="883" alt="누적테스트페이지" src="https://github.com/user-attachments/assets/8b0affdd-dbde-4320-9451-afddfadb759a" />
-<img width="3840" height="3769" alt="신호처리보드플로우차트(단순ver) png" src="https://github.com/user-attachments/assets/e50c71c1-a87a-47eb-bac0-48f0b19b1897" />
-<img width="884" height="1612" alt="C언어(IIO READ 전환 후) 성능표" src="https://github.com/user-attachments/assets/8fedafab-c1cf-4eaa-a674-f6e4b0c9ea22" />
-<img width="1700" height="1300" alt="★ADC보드체널별수식가이드" src="https://github.com/user-attachments/assets/85727c97-2915-4924-a435-96dd4ba1656e" />
-<img width="1857" height="743" alt="식스파이버즈_광파장에따른볼트참고자료" src="https://github.com/user-attachments/assets/d0239c19-afcb-44a2-8b7c-2b1b947ca74a" />
-
-
-
-
+<h2>📜 라이선스</h2>
+이 프로젝트는 사내 배포 및 테스트 목적으로 작성되었으며,<br>
+외부 배포 시에는 관련 라이선스 및 NDA 정책을 준수해야 합니다.
