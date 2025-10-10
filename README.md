@@ -157,13 +157,14 @@ zed/
 
 <hr>
 
-<h2>🖼️ 이미지 자료</h2>
+<h2>🖼️ PC 모니터링 화면 및 UART0 실시간 로그</h2>
 <img width="1913" height="899" alt="RawData탭" src="https://github.com/user-attachments/assets/1c6501e9-1c36-41a3-a6fa-0b5bc4b91bec" />
 <img width="1907" height="887" alt="Configuration탭" src="https://github.com/user-attachments/assets/304ecaa8-193a-4ff8-b379-672a798e90e0" />
 <img width="1909" height="899" alt="4ch탭" src="https://github.com/user-attachments/assets/de8bce6a-1a82-4464-a09e-94224362dc63" />
 <img width="1073" height="1539" alt="4ch세부채널탭" src="https://github.com/user-attachments/assets/de50e702-9ffd-4883-96d8-fe41e3c60a23" />
 <img width="1881" height="883" alt="Reset탭" src="https://github.com/user-attachments/assets/cb95ff0b-ed50-4c24-952e-9fd986ac9b4b" />
 <img width="1905" height="909" alt="Save탭" src="https://github.com/user-attachments/assets/e6531251-7b3b-412d-bfb0-6efec36dfac7" />
+<img width="1677" height="857" alt="UART0로그동시확인" src="https://github.com/user-attachments/assets/77f99098-9177-46a8-990d-a83fad71a908" />
 
 
 
