@@ -10,8 +10,5 @@ ExecStart=/root/start.sh
 Restart=always
 Environment=PYTHONUNBUFFERED=1
 
-StandardOutput=journal
-StandardError=journal
-
 [Install]
 WantedBy=multi-user.target

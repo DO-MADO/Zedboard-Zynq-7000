@@ -71,3 +71,7 @@ compile_commands.json
 
 # ===== ENV =====
 .env
+
+
+# ===== img =====
+zed/python/server/static/img/
