@@ -52,7 +52,6 @@ Zynq 기반 ZedBoard와 Python FastAPI 서버를 결합해,<br>
 </ul>
 
 <br>
-<br>
 
 <h2>✨ 엣지 포인트</h2>
 
