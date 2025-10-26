@@ -65,7 +65,23 @@ Zynq 기반 ZedBoard와 Python FastAPI 서버를 결합해,<br>
 - <b>원클릭 재배포 및 재시작</b> – 파라미터 변화 감지 시 파이프라인을 안전하게 중지하고 새로운 설정으로 재시작하는 자동화 로직은 운영 중 설정 변경을 자주 해야 하는 현장 요건에 잘 맞습니다.
 
 
-<hr>
+<br>
+
+## 🧑🏻‍💻 직접 사용한 기술
+
+| 구분 | 기술 |
+| :--- | :--- |
+| 📝 **Languages** | ![C](https://img.shields.io/badge/C-A8B9CC?style=for-the-badge&logo=c&logoColor=white) ![Python](https://img.shields.io/badge/Python%203-3776AB?style=for-the-badge&logo=python&logoColor=white) ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black) ![Bash](https://img.shields.io/badge/Bash-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white) |
+| ⚙️ **Backend & Data** | ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white) ![Uvicorn](https://img.shields.io/badge/Uvicorn-499848?style=for-the-badge&logo=python&logoColor=white) ![Pydantic](https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white) ![WebSocket](https://img.shields.io/badge/WebSocket-010101?style=for-the-badge&logo=socketdotio&logoColor=white) ![Pandas](https://img.shields.io/badge/Pandas-150458?style=for-the-badge&logo=pandas&logoColor=white) ![NumPy](https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white) |
+| 🎨 **Frontend** | ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white) ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white) ![Chart.js](https://img.shields.io/badge/Chart.js-FF6384?style=for-the-badge&logo=chartdotjs&logoColor=white) |
+| 🔧 **Embedded / Hardware** | ![ZedBoard](https://img.shields.io/badge/ZedBoard%20(Zynq--7000)-E01F27?style=for-the-badge&logo=xilinx&logoColor=white) ![Analog%20Devices%20AD4858](https://img.shields.io/badge/Analog%20Devices%20AD4858-00539F?style=for-the-badge&logo=analogdevices&logoColor=white) ![libiio](https://img.shields.io/badge/libiio-0078D7?style=for-the-badge&logo=linux&logoColor=white) ![GCC](https://img.shields.io/badge/GCC-FA7343?style=for-the-badge&logo=gnu&logoColor=white) ![UART](https://img.shields.io/badge/UART-000000?style=for-the-badge&logo=serialport&logoColor=white) |
+| 🛠️ **DevOps / Deployment** | ![systemd](https://img.shields.io/badge/systemd-009639?style=for-the-badge&logo=linux&logoColor=white) ![CMake](https://img.shields.io/badge/CMake-064F8C?style=for-the-badge&logo=cmake&logoColor=white) ![OpenSSH](https://img.shields.io/badge/OpenSSH-2C2D72?style=for-the-badge&logo=openssh&logoColor=white) ![scp](https://img.shields.io/badge/scp-0069B4?style=for-the-badge&logo=linux&logoColor=white) ![dotenv](https://img.shields.io/badge/.env-000000?style=for-the-badge&logo=dotenv&logoColor=white) |
+
+
+
+
+
+<br>
 
 <h2>🧭 환경 변수 예시 (.env.example)</h2>
 
